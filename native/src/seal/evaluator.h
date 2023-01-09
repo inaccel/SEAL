@@ -13,6 +13,9 @@
 #include "seal/secretkey.h"
 #include "seal/valcheck.h"
 #include "seal/util/iterator.h"
+#ifdef SEAL_USE_INTEL_HEXL
+#include "seal/util/keyswitch.h"
+#endif
 #include <map>
 #include <stdexcept>
 #include <vector>
@@ -81,6 +84,8 @@ namespace seal
         @throws std::invalid_argument if the encryption parameters are not valid
         */
         Evaluator(const SEALContext &context);
+
+        ~Evaluator();
 
         /**
         Negates a ciphertext.
@@ -1266,5 +1271,7 @@ namespace seal
         void multiply_plain_ntt(Ciphertext &encrypted_ntt, const Plaintext &plain_ntt) const;
 
         SEALContext context_;
+
+        std::unordered_map<const PublicKey *, keys_t> key_vector_cache;
     };
 } // namespace seal
