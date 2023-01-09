@@ -11,6 +11,16 @@
 #include <iostream>
 #include <vector>
 
+#ifdef SEAL_USE_INTEL_HEXL
+#include <inaccel/shm>
+
+typedef struct {
+    inaccel::vector<DyadmultKeys1_t> key1;
+    inaccel::vector<DyadmultKeys2_t> key2;
+    inaccel::vector<DyadmultKeys3_t> key3;
+} FPGAPublicKey;
+#endif
+
 namespace seal
 {
     /**
@@ -83,6 +93,54 @@ namespace seal
                 return res + (next_key.empty() ? 0 : 1);
             });
         }
+
+#ifdef SEAL_USE_INTEL_HEXL
+        /**
+        Returns a reference to the KSwitchKeys FPGA data.
+        */
+        SEAL_NODISCARD inline auto &fpga_data() noexcept
+        {
+            return fpga_keys_;
+        }
+
+        /**
+        Returns a const reference to the KSwitchKeys FPGA data.
+        */
+        SEAL_NODISCARD inline auto &fpga_data() const noexcept
+        {
+            return fpga_keys_;
+        }
+
+        /**
+        Returns a reference to a keyswitching FPGA key at a given index.
+
+        @param[in] index The index of the keyswitching key
+        @throws std::invalid_argument if the key at the given index does not exist
+        */
+        SEAL_NODISCARD inline auto &fpga_data(std::size_t index)
+        {
+            if (index >= fpga_keys_.size())
+            {
+                throw std::invalid_argument("keyswitching FPGA key does not exist");
+            }
+            return fpga_keys_[index];
+        }
+
+        /**
+        Returns a const reference to a keyswitching FPGA key at a given index.
+
+        @param[in] index The index of the keyswitching key
+        @throws std::invalid_argument if the key at the given index does not exist
+        */
+        SEAL_NODISCARD inline const auto &fpga_data(std::size_t index) const
+        {
+            if (index >= fpga_keys_.size())
+            {
+                throw std::invalid_argument("keyswitching FPGA key does not exist");
+            }
+            return fpga_keys_[index];
+        }
+#endif
 
         /**
         Returns a reference to the KSwitchKeys data.
@@ -338,5 +396,9 @@ namespace seal
         The vector of keyswitching keys.
         */
         std::vector<std::vector<PublicKey>> keys_{};
+
+#ifdef SEAL_USE_INTEL_HEXL
+        std::vector<FPGAPublicKey> fpga_keys_{};
+#endif
     };
 } // namespace seal

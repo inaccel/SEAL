@@ -13,6 +13,11 @@
 #include <memory>
 #include <unordered_map>
 
+#ifdef SEAL_USE_INTEL_HEXL
+#include "seal/util/keyswitch.h"
+#include <inaccel/shm>
+#endif
+
 namespace seal
 {
     /**
@@ -632,6 +637,23 @@ namespace seal
             return using_keyswitching_;
         }
 
+#ifdef SEAL_USE_INTEL_HEXL
+        SEAL_NODISCARD inline const inaccel::vector<uint64_t> &root_of_unity_powers() const noexcept
+        {
+            return root_of_unity_powers_;
+        }
+
+        SEAL_NODISCARD inline const moduli_t modulus_meta() const noexcept
+        {
+            return modulus_meta_;
+        }
+
+        SEAL_NODISCARD inline const moduli_t invn() const noexcept
+        {
+            return invn_;
+        }
+#endif
+
     private:
         /**
         Creates an instance of SEALContext, and performs several pre-computations
@@ -676,5 +698,11 @@ namespace seal
         Is keyswitching supported by the encryption parameters?
         */
         bool using_keyswitching_;
+
+#ifdef SEAL_USE_INTEL_HEXL
+        inaccel::vector<uint64_t> root_of_unity_powers_;
+
+        moduli_t modulus_meta_ = {}, invn_ = {};
+#endif
     };
 } // namespace seal

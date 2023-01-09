@@ -69,4 +69,17 @@ install(
         ${SEAL_INCLUDES_INSTALL_DIR}/seal/util
 )
 
+if (SEAL_USE_INTEL_HEXL)
+    list(APPEND SEAL_SOURCE_FILES
+        ${CMAKE_CURRENT_LIST_DIR}/keyswitch.cpp
+    )
+
+    install(
+        FILES
+            ${CMAKE_CURRENT_LIST_DIR}/keyswitch.h
+        DESTINATION
+            ${SEAL_INCLUDES_INSTALL_DIR}/seal/util
+    )
+endif()
+
 set(SEAL_SOURCE_FILES ${SEAL_SOURCE_FILES} PARENT_SCOPE)

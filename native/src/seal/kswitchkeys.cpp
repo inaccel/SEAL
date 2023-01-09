@@ -36,6 +36,17 @@ namespace seal
             }
         }
 
+#ifdef SEAL_USE_INTEL_HEXL
+        fpga_keys_.clear();
+        fpga_keys_.reserve(assign.fpga_keys_.size());
+        for (size_t i = 0; i < assign.fpga_keys_.size(); i++)
+        {
+            fpga_keys_[i].key1 = assign.fpga_keys_[i].key1;
+            fpga_keys_[i].key2 = assign.fpga_keys_[i].key2;
+            fpga_keys_[i].key3 = assign.fpga_keys_[i].key3;
+        }
+#endif
+
         return *this;
     }
 

@@ -5,6 +5,9 @@
 #include "seal/randomtostd.h"
 #include "seal/util/common.h"
 #include "seal/util/galois.h"
+#ifdef SEAL_USE_INTEL_HEXL
+#include "seal/util/keyswitch.h"
+#endif
 #include "seal/util/ntt.h"
 #include "seal/util/polyarithsmallmod.h"
 #include "seal/util/polycore.h"
@@ -173,6 +176,9 @@ namespace seal
         auto &coeff_modulus = parms.coeff_modulus();
         auto galois_tool = context_data.galois_tool();
         size_t coeff_count = parms.poly_modulus_degree();
+#ifdef SEAL_USE_INTEL_HEXL
+        size_t decomp_mod_count = context_.first_context_data()->parms().coeff_modulus().size();
+#endif
         size_t coeff_modulus_size = coeff_modulus.size();
 
         // Size check
@@ -186,6 +192,9 @@ namespace seal
 
         // The max number of keys is equal to number of coefficients
         galois_keys.data().resize(coeff_count);
+#ifdef SEAL_USE_INTEL_HEXL
+        galois_keys.fpga_data().resize(coeff_count);
+#endif
 
         for (auto galois_elt : galois_elts)
         {
@@ -212,6 +221,18 @@ namespace seal
 
             // Create Galois keys.
             generate_one_kswitch_key(rotated_secret_key, galois_keys.data()[index], save_seed);
+#ifdef SEAL_USE_INTEL_HEXL
+            std::vector<const uint64_t *> kswitch_keys;
+            for (auto &key : galois_keys.data()[index]) {
+                kswitch_keys.push_back(key.data().data());
+            }
+            FPGAPublicKey &fpga_key = galois_keys.fpga_data()[index];
+            fpga_key.key1.resize(coeff_count * decomp_mod_count);
+            fpga_key.key2.resize(coeff_count * decomp_mod_count);
+            fpga_key.key3.resize(coeff_count * decomp_mod_count);
+            keyswitch::loadKeys(coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(),
+                fpga_key.key1.data(), fpga_key.key2.data(), fpga_key.key3.data());
+#endif
         }
 
         // Set the parms_id
@@ -337,6 +358,9 @@ namespace seal
         ConstPolyIter new_keys, size_t num_keys, KSwitchKeys &destination, bool save_seed)
     {
         size_t coeff_count = context_.key_context_data()->parms().poly_modulus_degree();
+#ifdef SEAL_USE_INTEL_HEXL
+        size_t decomp_mod_count = context_.first_context_data()->parms().coeff_modulus().size();
+#endif
         auto &key_context_data = *context_.key_context_data();
         auto &key_parms = key_context_data.parms();
         size_t coeff_modulus_size = key_parms.coeff_modulus().size();
@@ -357,8 +381,26 @@ namespace seal
         }
 #endif
         destination.data().resize(num_keys);
+#ifdef SEAL_USE_INTEL_HEXL
+        destination.fpga_data().resize(num_keys);
+        SEAL_ITERATE(iter(new_keys, destination.data(), destination.fpga_data()), num_keys, [&](auto I) {
+#else
         SEAL_ITERATE(iter(new_keys, destination.data()), num_keys, [&](auto I) {
+#endif
             this->generate_one_kswitch_key(get<0>(I), get<1>(I), save_seed);
+#ifdef SEAL_USE_INTEL_HEXL
+            std::vector<const uint64_t *> kswitch_keys;
+            for (auto &key : get<1>(I)) {
+                kswitch_keys.push_back(key.data().data());
+            }
+            FPGAPublicKey &fpga_key = get<2>(I);
+            fpga_key.key1.resize(coeff_count * decomp_mod_count);
+            fpga_key.key2.resize(coeff_count * decomp_mod_count);
+            fpga_key.key3.resize(coeff_count * decomp_mod_count);
+
+            keyswitch::loadKeys(coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(),
+                fpga_key.key1.data(), fpga_key.key2.data(), fpga_key.key3.data());
+#endif
         });
     }
 } // namespace seal

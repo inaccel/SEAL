@@ -1,7 +1,7 @@
 #pragma once
 
-#include "seal/modulus.h"
 #include "seal/util/uintarithsmallmod.h"
+#include "seal/modulus.h"
 #include <cstdint>
 
 typedef struct {
@@ -39,12 +39,6 @@ typedef struct {
 typedef struct {
     uint64_t data[8][4];
 } moduli_t;
-
-typedef struct {
-    DyadmultKeys1_t *key1;
-    DyadmultKeys2_t *key2;
-    DyadmultKeys3_t *key3;
-} keys_t;
 
 namespace seal {
     namespace util {

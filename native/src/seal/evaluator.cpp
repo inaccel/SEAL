@@ -130,19 +130,6 @@ namespace seal
         }
     }
 
-    Evaluator::~Evaluator() {
-        inaccel::allocator<DyadmultKeys1_t> alloc_DyadmultKeys1_t;
-        inaccel::allocator<DyadmultKeys2_t> alloc_DyadmultKeys2_t;
-        inaccel::allocator<DyadmultKeys3_t> alloc_DyadmultKeys3_t;
-
-        for (auto pair: key_vector_cache) {
-            keys_t dyadmult = pair.second;
-            alloc_DyadmultKeys1_t.deallocate(dyadmult.key1, 0);
-            alloc_DyadmultKeys2_t.deallocate(dyadmult.key2, 0);
-            alloc_DyadmultKeys3_t.deallocate(dyadmult.key3, 0);
-        }
-    }
-
     void Evaluator::negate_inplace(Ciphertext &encrypted) const
     {
         // Verify parameters.
@@ -2478,7 +2465,7 @@ namespace seal
 #ifdef SEAL_USE_INTEL_HEXL
         bool valid_moduli = true;
         for (uint64_t i; i < decomp_modulus_size; i ++) {
-            if ((key_parms.coeff_modulus()[i] < (1UL << 16)) || (key_parms.coeff_modulus()[i] > (1UL << 52))) {
+            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52))) {
                 valid_moduli = false;
                 break;
             }
@@ -2493,11 +2480,7 @@ namespace seal
             const uint64_t *t_target_iter_ptr = &(*target_iter)[0];
 
             uint64_t batch_size = 1;
-            moduli_t modulus_meta = {}, invn = {};
             inaccel::allocator<uint64_t> alloc_uint64_t;
-            inaccel::allocator<DyadmultKeys1_t> alloc_DyadmultKeys1_t;
-            inaccel::allocator<DyadmultKeys2_t> alloc_DyadmultKeys2_t;
-            inaccel::allocator<DyadmultKeys3_t> alloc_DyadmultKeys3_t;
 
             size_t root_of_unity_powers_size = coeff_count * key_modulus_size * 4;
             size_t key_size = decomp_modulus_size * coeff_count;
@@ -2505,63 +2488,24 @@ namespace seal
             size_t output_size = batch_size * coeff_count * decomp_modulus_size * key_component_count;
 
             // allocate FPGA arrays
-            DyadmultKeys1_t *key1 = alloc_DyadmultKeys1_t.allocate(key_size);
-            DyadmultKeys2_t *key2 = alloc_DyadmultKeys2_t.allocate(key_size);
-            DyadmultKeys3_t *key3 = alloc_DyadmultKeys3_t.allocate(key_size);
             uint64_t *fpga_input = alloc_uint64_t.allocate(input_size);
             uint64_t *fpga_output = alloc_uint64_t.allocate(output_size);
-            uint64_t *root_of_unity_powers = alloc_uint64_t.allocate(root_of_unity_powers_size);
 
             memcpy(fpga_input, t_target_iter_ptr, input_size * sizeof(uint64_t));
-
-            keyswitch::loadTwiddleFactors(coeff_count, key_modulus_size,
-                                          key_parms.coeff_modulus().data(),
-                                          root_of_unity_powers);
-
-            keyswitch::buildModulusMeta(key_modulus_size,
-                                        key_parms.coeff_modulus().data(),
-                                        modswitch_factors, &modulus_meta);
-
-            keyswitch::buildInvnMeta(coeff_count, key_modulus_size,
-                                     key_parms.coeff_modulus().data(),
-                                     root_of_unity_powers, &invn);
-
-            auto cache_key = &key_vector[0];
-            if (key_vector_cache.find(cache_key) == key_vector_cache.end()) {
-                std::vector<const uint64_t *> key_vector_data;
-                for (auto &curr_key : key_vector) {
-                    auto &curr_key_cipher = curr_key.data();
-                    key_vector_data.push_back(curr_key_cipher.data());
-                }
-
-                keyswitch::loadKeys(coeff_count,
-                     decomp_modulus_size,
-                     key_modulus_size,
-                     key_vector_data.data(),
-                     key1,
-                     key2,
-                     key3);
-
-                keys_t keys = {key1, key2, key3};
-
-                const_cast<Evaluator *>(this)->key_vector_cache.emplace(cache_key, keys);
-            }
-
-            keys_t dyadmult = const_cast<Evaluator *>(this)->key_vector_cache[cache_key];
 
             inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
             keyswitch.arg((int) batch_size)
                 .arg(batch_size)
                 .arg((int) coeff_count)
                 .arg(coeff_count)
-                .arg(modulus_meta)
-                .arg(invn)
+                .arg(context_.modulus_meta())
+                .arg(context_.invn())
                 .arg(decomp_modulus_size)
-                .arg_array<uint64_t>(root_of_unity_powers, root_of_unity_powers + root_of_unity_powers_size)
+                .arg(context_.root_of_unity_powers())
                 .arg(root_of_unity_powers_size)
-                .arg_array<DyadmultKeys1_t>(dyadmult.key1, dyadmult.key1 + key_size)
-                .arg_array<DyadmultKeys2_t>(dyadmult.key2, dyadmult.key2 + key_size)
-                .arg_array<DyadmultKeys3_t>(dyadmult.key3, dyadmult.key3 + key_size)
+                .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
+                .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
+                .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
                 .arg(key_size)
                 .arg_array<uint64_t>(fpga_input, fpga_input + input_size)
                 .arg(input_size)
@@ -2572,12 +2516,9 @@ namespace seal
 
             inaccel::submit(keyswitch).get();
 
-            keyswitch::readOutput(coeff_count, decomp_modulus_size,
-                                  key_parms.coeff_modulus().data(),
+            keyswitch::readOutput(coeff_count, decomp_modulus_size, key_modulus.data(),
                                   fpga_output, encrypted.data(), batch_size);
 
-            alloc_uint64_t.deallocate(root_of_unity_powers,
-                root_of_unity_powers_size);
             alloc_uint64_t.deallocate(fpga_output, output_size);
             alloc_uint64_t.deallocate(fpga_input, input_size);
 
