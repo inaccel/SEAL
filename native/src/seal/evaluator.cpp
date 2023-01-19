@@ -1161,6 +1161,77 @@ namespace seal
 #endif
     }
 
+#ifdef SEAL_USE_INTEL_HEXL
+    void Evaluator::relinearize_internal(
+        Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, size_t destination_size, MemoryPoolHandle pool) const
+    {
+        // Verify parameters.
+        if (relin_keys.parms_id() != context_.key_parms_id())
+        {
+            throw invalid_argument("relin_keys is not valid for encryption parameters");
+        }
+
+        std::vector<ConstRNSIter> encrypted_rns_iter(chunk_size);
+        for (size_t i = 0; i < chunk_size; i++)
+        {
+            auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
+            if (!context_data_ptr)
+            {
+                throw invalid_argument("encrypted is not valid for encryption parameters");
+            }
+
+            size_t encrypted_size = encrypted[i].size();
+
+            // Verify parameters.
+            if (destination_size < 2 || destination_size > encrypted_size)
+            {
+                throw invalid_argument("destination_size must be at least 2 and less than or equal to current count");
+            }
+            if (relin_keys.size() < sub_safe(encrypted_size, size_t(2)))
+            {
+                throw invalid_argument("not enough relinearization keys");
+            }
+
+            // If encrypted is already at the desired level, return
+            if (destination_size == encrypted_size)
+            {
+                return;
+            }
+
+            auto encrypted_iter = iter(encrypted[i]);
+            encrypted_iter += encrypted_size - 1;
+            encrypted_rns_iter[i] = *encrypted_iter;
+
+            // Calculate number of relinearize_one_step calls needed
+            size_t relins_needed = encrypted_size - destination_size;
+            if (relins_needed > 1)
+            {
+                throw runtime_error("fpga batch execution does not support relins_needed > 1");
+            }
+        }
+
+        this->switch_key_inplace(
+            encrypted, chunk_size, encrypted_rns_iter.data(), static_cast<const KSwitchKeys &>(relin_keys),
+            RelinKeys::get_index(encrypted[0].size() - 1), pool);
+
+        for (size_t i = 0; i < chunk_size; i++)
+        {
+            auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
+
+            // Put the output of final relinearization into destination.
+            // Prepare destination only at this point because we are resizing down
+            encrypted[i].resize(context_, context_data_ptr->parms_id(), destination_size);
+#ifdef SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
+            // Transparent ciphertext output is not allowed.
+            if (encrypted[i].is_transparent())
+            {
+                throw logic_error("result ciphertext is transparent");
+            }
+#endif
+        }
+    }
+#endif
+
     void Evaluator::mod_switch_scale_to_next(
         const Ciphertext &encrypted, Ciphertext &destination, MemoryPoolHandle pool) const
     {
@@ -2325,6 +2396,123 @@ namespace seal
 #endif
     }
 
+#ifdef SEAL_USE_INTEL_HEXL
+    void Evaluator::apply_galois_inplace(
+        Ciphertext *encrypted, size_t chunk_size, uint32_t galois_elt, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
+    {
+        std::vector<Pointer<long unsigned int, void>> poly(chunk_size);
+        std::vector<RNSIter> temp(chunk_size);
+
+        for (size_t i = 0; i < chunk_size; i++)
+        {
+            // Verify parameters.
+            if (!is_metadata_valid_for(encrypted[i], context_) || !is_buffer_valid(encrypted[i]))
+            {
+                throw invalid_argument("encrypted is not valid for encryption parameters");
+            }
+
+            // Don't validate all of galois_keys but just check the parms_id.
+            if (galois_keys.parms_id() != context_.key_parms_id())
+            {
+                throw invalid_argument("galois_keys is not valid for encryption parameters");
+            }
+
+            auto &context_data = *context_.get_context_data(encrypted[i].parms_id());
+            auto &parms = context_data.parms();
+            auto &coeff_modulus = parms.coeff_modulus();
+            size_t coeff_count = parms.poly_modulus_degree();
+            size_t coeff_modulus_size = coeff_modulus.size();
+            size_t encrypted_size = encrypted[i].size();
+            // Use key_context_data where permutation tables exist since previous runs.
+            auto galois_tool = context_.key_context_data()->galois_tool();
+
+            // Size check
+            if (!product_fits_in(coeff_count, coeff_modulus_size))
+            {
+                throw logic_error("invalid parameters");
+            }
+
+            // Check if Galois key is generated or not.
+            if (!galois_keys.has_key(galois_elt))
+            {
+                throw invalid_argument("Galois key not present");
+            }
+
+            uint64_t m = mul_safe(static_cast<uint64_t>(coeff_count), uint64_t(2));
+
+            // Verify parameters
+            if (!(galois_elt & 1) || unsigned_geq(galois_elt, m))
+            {
+                throw invalid_argument("Galois element is not valid");
+            }
+            if (encrypted_size > 2)
+            {
+                throw invalid_argument("encrypted size must be 2");
+            }
+
+            poly[i] = allocate_poly(coeff_count, coeff_modulus_size, pool);
+            temp[i] = RNSIter(poly[i].get(), coeff_count);
+
+            // DO NOT CHANGE EXECUTION ORDER OF FOLLOWING SECTION
+            // BEGIN: Apply Galois for each ciphertext
+            // Execution order is sensitive, since apply_galois is not inplace!
+            if (parms.scheme() == scheme_type::bfv || parms.scheme() == scheme_type::bgv)
+            {
+                // !!! DO NOT CHANGE EXECUTION ORDER!!!
+
+                // First transform encrypted[i].data(0)
+                auto encrypted_iter = iter(encrypted[i]);
+                galois_tool->apply_galois(encrypted_iter[0], coeff_modulus_size, galois_elt, coeff_modulus, temp[i]);
+
+                // Copy result to encrypted[i].data(0)
+                set_poly(temp[i], coeff_count, coeff_modulus_size, encrypted[i].data(0));
+
+                // Next transform encrypted[i].data(1)
+                galois_tool->apply_galois(encrypted_iter[1], coeff_modulus_size, galois_elt, coeff_modulus, temp[i]);
+            }
+            else if (parms.scheme() == scheme_type::ckks)
+            {
+                // !!! DO NOT CHANGE EXECUTION ORDER!!!
+
+                // First transform encrypted[i].data(0)
+                auto encrypted_iter = iter(encrypted[i]);
+                galois_tool->apply_galois_ntt(encrypted_iter[0], coeff_modulus_size, galois_elt, temp[i]);
+
+                // Copy result to encrypted[i].data(0)
+                set_poly(temp[i], coeff_count, coeff_modulus_size, encrypted[i].data(0));
+
+                // Next transform encrypted[i].data(1)
+                galois_tool->apply_galois_ntt(encrypted_iter[1], coeff_modulus_size, galois_elt, temp[i]);
+            }
+            else
+            {
+                throw logic_error("scheme not implemented");
+            }
+
+            // Wipe encrypted[i].data(1)
+            set_zero_poly(coeff_count, coeff_modulus_size, encrypted[i].data(1));
+
+            // END: Apply Galois for each ciphertext
+            // REORDERING IS SAFE NOW
+        }
+
+        // Calculate (temp * galois_key[0], temp * galois_key[1]) + (ct[0], 0)
+        switch_key_inplace(
+            encrypted, chunk_size, (ConstRNSIter *) temp.data(), static_cast<const KSwitchKeys &>(galois_keys), GaloisKeys::get_index(galois_elt), pool);
+
+        for (size_t i = 0; i < chunk_size; i++)
+        {
+#ifdef SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
+            // Transparent ciphertext output is not allowed.
+            if (encrypted[i].is_transparent())
+            {
+                throw logic_error("result ciphertext is transparent");
+            }
+#endif
+        }
+    }
+#endif
+
     void Evaluator::rotate_internal(
         Ciphertext &encrypted, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
     {
@@ -2381,6 +2569,69 @@ namespace seal
             });
         }
     }
+
+#ifdef SEAL_USE_INTEL_HEXL
+    void Evaluator::rotate_internal(
+        Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
+    {
+        for (size_t i = 0; i < chunk_size; i++)
+        {
+            auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
+                if (!context_data_ptr)
+                {
+                    throw invalid_argument("encrypted is not valid for encryption parameters");
+                }
+                if (!context_data_ptr->qualifiers().using_batching)
+                {
+                    throw logic_error("encryption parameters do not support batching");
+                }
+        }
+        if (galois_keys.parms_id() != context_.key_parms_id())
+        {
+            throw invalid_argument("galois_keys is not valid for encryption parameters");
+        }
+
+        // Is there anything to do?
+        if (steps == 0)
+        {
+            return;
+        }
+
+        auto context_data_ptr = context_.get_context_data(encrypted[0].parms_id());
+        size_t coeff_count = context_data_ptr->parms().poly_modulus_degree();
+        auto galois_tool = context_data_ptr->galois_tool();
+
+        // Check if Galois key is generated or not.
+        if (galois_keys.has_key(galois_tool->get_elt_from_step(steps)))
+        {
+            // Perform rotation and key switching
+            apply_galois_inplace(encrypted, chunk_size, galois_tool->get_elt_from_step(steps), galois_keys, move(pool));
+        }
+        else
+        {
+            // Convert the steps to NAF: guarantees using smallest HW
+            vector<int> naf_steps = naf(steps);
+
+            // If naf_steps contains only one element, then this is a power-of-two
+            // rotation and we would have expected not to get to this part of the
+            // if-statement.
+            if (naf_steps.size() == 1)
+            {
+                throw invalid_argument("Galois key not present");
+            }
+
+            SEAL_ITERATE(naf_steps.cbegin(), naf_steps.size(), [&](auto step) {
+                // We might have a NAF-term of size coeff_count / 2; this corresponds
+                // to no rotation so we skip it. Otherwise call rotate_internal.
+                if (safe_cast<size_t>(abs(step)) != (coeff_count >> 1))
+                {
+                    // Apply rotation for this step
+                    this->rotate_internal(encrypted, chunk_size, step, galois_keys, pool);
+                }
+            });
+        }
+    }
+#endif
 
     void Evaluator::switch_key_inplace(
         Ciphertext &encrypted, ConstRNSIter target_iter, const KSwitchKeys &kswitch_keys, size_t kswitch_keys_index,
@@ -2472,20 +2723,21 @@ namespace seal
         }
 
         if (scheme == scheme_type::ckks
-            && coeff_count >= 1024 && coeff_count <= 16384
-            && key_modulus_size == 7
-            && key_component_count == 2
+            && (coeff_count >= 1024 && coeff_count <= 16384)
+            && (coeff_count & (coeff_count -1) != 0)
+            && (key_modulus_size == 7)
+            && (key_component_count == 2)
             && valid_moduli)
         {
             const uint64_t *t_target_iter_ptr = &(*target_iter)[0];
 
-            uint64_t batch_size = 1;
+            uint64_t chunk_size = 1;
             inaccel::allocator<uint64_t> alloc_uint64_t;
 
             size_t root_of_unity_powers_size = coeff_count * key_modulus_size * 4;
             size_t key_size = decomp_modulus_size * coeff_count;
-            size_t input_size = batch_size * coeff_count * decomp_modulus_size;
-            size_t output_size = batch_size * coeff_count * decomp_modulus_size * key_component_count;
+            size_t input_size = chunk_size * coeff_count * decomp_modulus_size;
+            size_t output_size = chunk_size * coeff_count * decomp_modulus_size * key_component_count;
 
             // allocate FPGA arrays
             uint64_t *fpga_input = alloc_uint64_t.allocate(input_size);
@@ -2494,8 +2746,8 @@ namespace seal
             memcpy(fpga_input, t_target_iter_ptr, input_size * sizeof(uint64_t));
 
             inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
-            keyswitch.arg((int) batch_size)
-                .arg(batch_size)
+            keyswitch.arg((int) chunk_size)
+                .arg(chunk_size)
                 .arg((int) coeff_count)
                 .arg(coeff_count)
                 .arg(context_.modulus_meta())
@@ -2517,7 +2769,7 @@ namespace seal
             inaccel::submit(keyswitch).get();
 
             keyswitch::readOutput(coeff_count, decomp_modulus_size, key_modulus.data(),
-                                  fpga_output, encrypted.data(), batch_size);
+                                  fpga_output, encrypted.data(), chunk_size);
 
             alloc_uint64_t.deallocate(fpga_output, output_size);
             alloc_uint64_t.deallocate(fpga_input, input_size);
@@ -2742,4 +2994,156 @@ namespace seal
             }
         });
     }
+
+#ifdef SEAL_USE_INTEL_HEXL
+    void Evaluator::switch_key_inplace(
+        Ciphertext *encrypted, size_t chunk_size, ConstRNSIter *target_iter, const KSwitchKeys &kswitch_keys,
+        size_t kswitch_keys_index, MemoryPoolHandle pool) const
+    {
+        auto &key_context_data = *context_.key_context_data();
+        auto &key_parms = key_context_data.parms();
+
+        // Don't validate all of kswitch_keys but just check the parms_id.
+        if (kswitch_keys.parms_id() != context_.key_parms_id())
+        {
+            throw invalid_argument("parameter mismatch");
+        }
+
+        if (kswitch_keys_index >= kswitch_keys.data().size())
+        {
+            throw out_of_range("kswitch_keys_index");
+        }
+        if (!pool)
+        {
+            throw invalid_argument("pool is uninitialized");
+        }
+
+        for (size_t i = 0; i < chunk_size; i++){
+            auto parms_id = encrypted[i].parms_id();
+            auto &context_data = *context_.get_context_data(parms_id);
+            auto &parms = context_data.parms();
+            auto scheme = parms.scheme();
+
+            // Verify parameters.
+            if (!is_metadata_valid_for(encrypted[i], context_) || !is_buffer_valid(encrypted[i]))
+            {
+                throw invalid_argument("encrypted is not valid for encryption parameters");
+            }
+            if (!target_iter[i])
+            {
+                throw invalid_argument("target_iter");
+            }
+            if (!context_.using_keyswitching())
+            {
+                throw logic_error("keyswitching is not supported by the context");
+            }
+            if (scheme != scheme_type::ckks)
+            {
+                throw invalid_argument("FPGA switch_key_inplace only supported with CKKS sheme");
+            }
+            if (!encrypted[i].is_ntt_form())
+            {
+                throw invalid_argument("CKKS encrypted must be in NTT form");
+            }
+        }
+
+        auto parms_id = encrypted[0].parms_id();
+        auto &context_data = *context_.get_context_data(parms_id);
+        auto &parms = context_data.parms();
+        auto scheme = parms.scheme();
+
+        // Extract encryption parameters.
+        size_t coeff_count = parms.poly_modulus_degree();
+        size_t decomp_modulus_size = parms.coeff_modulus().size();
+        auto &key_modulus = key_parms.coeff_modulus();
+        size_t key_modulus_size = key_modulus.size();
+        size_t rns_modulus_size = decomp_modulus_size + 1;
+        auto key_ntt_tables = iter(key_context_data.small_ntt_tables());
+        auto modswitch_factors = key_context_data.rns_tool()->inv_q_last_mod_q();
+
+        // Size check
+        if (!product_fits_in(coeff_count, rns_modulus_size, size_t(2)))
+        {
+            throw logic_error("invalid parameters");
+        }
+
+        // Prepare input
+        auto &key_vector = kswitch_keys.data()[kswitch_keys_index];
+        size_t key_component_count = key_vector[0].data().size();
+
+        // Check only the used component in KSwitchKeys.
+        for (auto &each_key : key_vector)
+        {
+            if (!is_metadata_valid_for(each_key, context_) || !is_buffer_valid(each_key))
+            {
+                throw invalid_argument("kswitch_keys is not valid for encryption parameters");
+            }
+        }
+
+        if (coeff_count < 1024 || coeff_count > 16384 || coeff_count & (coeff_count -1) == 0) {
+            throw out_of_range("coeff_count");
+        }
+        if (key_modulus_size != 7) {
+            throw invalid_argument("key_modulus_size must be 7");
+        }
+        if (key_component_count != 2) {
+            throw invalid_argument("key_component_count must be 2");
+        }
+
+        bool valid_moduli = true;
+        for (uint64_t i; i < decomp_modulus_size; i ++) {
+            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52))) {
+                valid_moduli = false;
+                break;
+            }
+        }
+        if (!valid_moduli) {
+            throw invalid_argument("key_modulus is not supported for FPGA execution");
+        }
+
+        // allocate FPGA arrays
+        inaccel::allocator<uint64_t> alloc_uint64_t;
+        size_t input_size = coeff_count * decomp_modulus_size;
+        size_t output_size = coeff_count * decomp_modulus_size * key_component_count;
+        uint64_t *fpga_input = alloc_uint64_t.allocate(chunk_size * input_size);
+        uint64_t *fpga_output = alloc_uint64_t.allocate(chunk_size * output_size);
+
+        for (size_t i = 0; i < chunk_size; i++) {
+            const uint64_t *t_target_iter_ptr = &(*target_iter[i])[0];
+
+            memcpy(fpga_input + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
+        }
+
+        inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
+        keyswitch.arg((int) chunk_size)
+        .arg(chunk_size)
+        .arg((int) coeff_count)
+        .arg(coeff_count)
+        .arg(context_.modulus_meta())
+        .arg(context_.invn())
+        .arg(decomp_modulus_size)
+        .arg(context_.root_of_unity_powers())
+        .arg(context_.root_of_unity_powers().size())
+        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
+        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
+        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
+        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1.size())
+        .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
+        .arg(chunk_size * input_size)
+        .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size)
+        .arg(chunk_size * output_size)
+        .arg((uint64_t) 0)
+        .arg(1);
+
+        inaccel::submit(keyswitch).get();
+
+        for (size_t i = 0; i < chunk_size; i++) {
+            keyswitch::readOutput(coeff_count, decomp_modulus_size, key_modulus.data(),
+                fpga_output + i * output_size, encrypted[i].data(), 1);
+        }
+
+        alloc_uint64_t.deallocate(fpga_output, chunk_size * output_size);
+        alloc_uint64_t.deallocate(fpga_input, chunk_size * input_size);
+    }
+#endif
 } // namespace seal

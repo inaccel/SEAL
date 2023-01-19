@@ -305,6 +305,28 @@ namespace seal
         }
 
         /**
+        Relinearizes a chunk of ciphertexts. This functions relinearizes encrypted, reducing its size down to 2. If the size of
+        each encrypted element is K+1, the given relinearization keys need to have size at least K-1. Dynamic memory allocations in
+        the process are allocated from the memory pool pointed to by the given MemoryPoolHandle.
+
+        @param[in] encrypted The ciphertexts to relinearize
+        @param[in] relin_keys The relinearization keys
+        @param[in] pool The MemoryPoolHandle pointing to a valid memory pool
+        @throws std::invalid_argument if encrypted or relin_keys is not valid for the encryption parameters
+        @throws std::invalid_argument if encrypted is not in the default NTT form
+        @throws std::invalid_argument if relin_keys do not correspond to the top level parameters in the current context
+        @throws std::invalid_argument if the size of relin_keys is too small
+        @throws std::invalid_argument if pool is uninitialized
+        @throws std::logic_error if keyswitching is not supported by the context
+        @throws std::logic_error if result ciphertexts are transparent
+        */
+        inline void relinearize_inplace(
+            Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, MemoryPoolHandle pool = MemoryManager::GetPool()) const
+        {
+            relinearize_internal(encrypted, chunk_size, relin_keys, 2, std::move(pool));
+        }
+
+        /**
         Relinearizes a ciphertext. This functions relinearizes encrypted, reducing its size down to 2, and stores the
         result in the destination parameter. If the size of encrypted is K+1, the given relinearization keys need to
         have size at least K-1. Dynamic memory allocations in the process are allocated from the memory pool pointed to
@@ -328,6 +350,35 @@ namespace seal
         {
             destination = encrypted;
             relinearize_inplace(destination, relin_keys, std::move(pool));
+        }
+
+        /**
+        Relinearizes a chunk of ciphertexts. This functions relinearizes encrypted, reducing its size down to 2, and stores the
+        results in the destination parameter. If the size of each encrypted element is K+1, the given relinearization keys need to
+        have size at least K-1. Dynamic memory allocations in the process are allocated from the memory pool pointed to
+        by the given MemoryPoolHandle.
+
+        @param[in] encrypted The ciphertexts to relinearize
+        @param[in] relin_keys The relinearization keys
+        @param[out] destination The ciphertexts to overwrite with the relinearized results
+        @param[in] pool The MemoryPoolHandle pointing to a valid memory pool
+        @throws std::invalid_argument if encrypted or relin_keys is not valid for the encryption parameters
+        @throws std::invalid_argument if encrypted is not in the default NTT form
+        @throws std::invalid_argument if relin_keys do not correspond to the top level parameters in the current context
+        @throws std::invalid_argument if the size of relin_keys is too small
+        @throws std::invalid_argument if pool is uninitialized
+        @throws std::logic_error if keyswitching is not supported by the context
+        @throws std::logic_error if result ciphertexts are transparent
+        */
+        inline void relinearize(
+            const Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, Ciphertext *destination,
+            MemoryPoolHandle pool = MemoryManager::GetPool()) const
+        {
+            for (size_t i = 0; i < chunk_size; i++)
+            {
+                destination[i] = encrypted[i];
+            }
+            relinearize_inplace(destination, chunk_size, relin_keys, std::move(pool));
         }
 
         /**
@@ -891,6 +942,38 @@ namespace seal
             MemoryPoolHandle pool = MemoryManager::GetPool()) const;
 
         /**
+        Applies a Galois automorphism to a chunk of ciphertexts. To evaluate the Galois automorphism, an appropriate set of Galois
+        keys must also be provided. Dynamic memory allocations in the process are allocated from the memory pool pointed
+        to by the given MemoryPoolHandle.
+
+        The desired Galois automorphism is given as a Galois element, and must be an odd integer in the interval
+        [1, M-1], where M = 2*N, and N = poly_modulus_degree. Used with batching, a Galois element 3^i % M corresponds
+        to a cyclic row rotation i steps to the left, and a Galois element 3^(N/2-i) % M corresponds to a cyclic row
+        rotation i steps to the right. The Galois element M-1 corresponds to a column rotation (row swap) in BFV/BGV,
+        and complex conjugation in CKKS. In the polynomial view (not batching), a Galois automorphism by a Galois
+        element p changes Enc(plain(x)) to Enc(plain(x^p)).
+
+        @param[in] encrypted The ciphertexts to apply the Galois automorphism to
+        @param[in] galois_elt The Galois element
+        @param[in] galois_keys The Galois keys
+        @param[in] pool The MemoryPoolHandle pointing to a valid memory pool
+        @throws std::invalid_argument if encrypted or galois_keys is not valid for
+        the encryption parameters
+        @throws std::invalid_argument if galois_keys do not correspond to the top
+        level parameters in the current context
+        @throws std::invalid_argument if encrypted is not in the default NTT form
+        @throws std::invalid_argument if encrypted has size larger than 2
+        @throws std::invalid_argument if the Galois element is not valid
+        @throws std::invalid_argument if necessary Galois keys are not present
+        @throws std::invalid_argument if pool is uninitialized
+        @throws std::logic_error if keyswitching is not supported by the context
+        @throws std::logic_error if result ciphertexts are transparent
+        */
+        void apply_galois_inplace(
+            Ciphertext *encrypted, size_t chunk_size, std::uint32_t galois_elt, const GaloisKeys &galois_keys,
+            MemoryPoolHandle pool = MemoryManager::GetPool()) const;
+
+        /**
         Applies a Galois automorphism to a ciphertext and writes the result to the destination parameter. To evaluate
         the Galois automorphism, an appropriate set of Galois keys must also be provided. Dynamic memory allocations in
         the process are allocated from the memory pool pointed to by the given MemoryPoolHandle.
@@ -1101,6 +1184,41 @@ namespace seal
         }
 
         /**
+        Rotates a chunk of plaintext vectors cyclically. When using the CKKS scheme, this function rotates the encrypted plaintext
+        vectors cyclically to the left (steps > 0) or to the right (steps < 0). Since the size of the batched matrix is
+        2-by-(N/2), where N is the degree of the polynomial modulus, the number of steps to rotate must have absolute
+        value at most N/2-1. Dynamic memory allocations in the process are allocated from the memory pool pointed to by
+        the given MemoryPoolHandle.
+
+        @param[in] encrypted The ciphertexts to rotate
+        @param[in] steps The number of steps to rotate (positive left, negative right)
+        @param[in] galois_keys The Galois keys
+        @param[in] pool The MemoryPoolHandle pointing to a valid memory pool
+        @throws std::logic_error if scheme is not scheme_type::ckks
+        @throws std::invalid_argument if encrypted or galois_keys is not valid for
+        the encryption parameters
+        @throws std::invalid_argument if galois_keys do not correspond to the top
+        level parameters in the current context
+        @throws std::invalid_argument if encrypted is not in the default NTT form
+        @throws std::invalid_argument if encrypted has size larger than 2
+        @throws std::invalid_argument if steps has too big absolute value
+        @throws std::invalid_argument if necessary Galois keys are not present
+        @throws std::invalid_argument if pool is uninitialized
+        @throws std::logic_error if keyswitching is not supported by the context
+        @throws std::logic_error if result ciphertexts are transparent
+        */
+        inline void rotate_vector_inplace(
+            Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+            MemoryPoolHandle pool = MemoryManager::GetPool()) const
+        {
+            if (context_.key_context_data()->parms().scheme() != scheme_type::ckks)
+            {
+                throw std::logic_error("unsupported scheme");
+            }
+            rotate_internal(encrypted, chunk_size, steps, galois_keys, std::move(pool));
+        }
+
+        /**
         Rotates plaintext vector cyclically. When using the CKKS scheme, this function rotates the encrypted plaintext
         vector cyclically to the left (steps > 0) or to the right (steps < 0) and writes the result to the destination
         parameter. Since the size of the batched matrix is 2-by-(N/2), where N is the degree of the polynomial modulus,
@@ -1131,6 +1249,42 @@ namespace seal
         {
             destination = encrypted;
             rotate_vector_inplace(destination, steps, galois_keys, std::move(pool));
+        }
+
+        /**
+        Rotates a chunk of plaintext vectors cyclically. When using the CKKS scheme, this function rotates the encrypted plaintext
+        vectors cyclically to the left (steps > 0) or to the right (steps < 0) and writes the results to the destination
+        parameter. Since the size of the batched matrix is 2-by-(N/2), where N is the degree of the polynomial modulus,
+        the number of steps to rotate must have absolute value at most N/2-1. Dynamic memory allocations in the process
+        are allocated from the memory pool pointed to by the given MemoryPoolHandle.
+
+        @param[in] encrypted The ciphertexts to rotate
+        @param[in] steps The number of steps to rotate (positive left, negative right)
+        @param[in] galois_keys The Galois keys
+        @param[out] destination The ciphertexts to overwrite with the rotated results
+        @param[in] pool The MemoryPoolHandle pointing to a valid memory pool
+        @throws std::logic_error if scheme is not scheme_type::ckks
+        @throws std::invalid_argument if encrypted or galois_keys is not valid for
+        the encryption parameters
+        @throws std::invalid_argument if galois_keys do not correspond to the top
+        level parameters in the current context
+        @throws std::invalid_argument if encrypted is in NTT form
+        @throws std::invalid_argument if encrypted has size larger than 2
+        @throws std::invalid_argument if steps has too big absolute value
+        @throws std::invalid_argument if necessary Galois keys are not present
+        @throws std::invalid_argument if pool is uninitialized
+        @throws std::logic_error if keyswitching is not supported by the context
+        @throws std::logic_error if result ciphertexts are transparent
+        */
+        inline void rotate_vector(
+            const Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys, Ciphertext *destination,
+            MemoryPoolHandle pool = MemoryManager::GetPool()) const
+        {
+            for (size_t i = 0; i < chunk_size; i++) {
+                destination[i] = encrypted[i];
+            }
+
+            rotate_vector_inplace(destination, chunk_size, steps, galois_keys, std::move(pool));
         }
 
         /**
@@ -1224,6 +1378,10 @@ namespace seal
             Ciphertext &encrypted, const RelinKeys &relin_keys, std::size_t destination_size,
             MemoryPoolHandle pool) const;
 
+        void relinearize_internal(
+            Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, std::size_t destination_size,
+            MemoryPoolHandle pool) const;
+
         void mod_switch_scale_to_next(
             const Ciphertext &encrypted, Ciphertext &destination, MemoryPoolHandle pool) const;
 
@@ -1233,6 +1391,9 @@ namespace seal
 
         void rotate_internal(
             Ciphertext &encrypted, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const;
+
+        void rotate_internal(
+            Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const;
 
         inline void conjugate_internal(
             Ciphertext &encrypted, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
@@ -1260,6 +1421,10 @@ namespace seal
         void switch_key_inplace(
             Ciphertext &encrypted, util::ConstRNSIter target_iter, const KSwitchKeys &kswitch_keys,
             std::size_t key_index, MemoryPoolHandle pool = MemoryManager::GetPool()) const;
+
+        void switch_key_inplace(
+            Ciphertext *encrypted, size_t chunk_size, util::ConstRNSIter *target_iter, const KSwitchKeys &kswitch_keys,
+            size_t kswitch_keys_index, MemoryPoolHandle pool) const;
 
         void multiply_plain_normal(Ciphertext &encrypted, const Plaintext &plain, MemoryPoolHandle pool) const;
 
