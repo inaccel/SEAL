@@ -521,22 +521,24 @@ namespace seal
         }
 
 #ifdef SEAL_USE_INTEL_HEXL
-        size_t coeff_count = parms.poly_modulus_degree();
-        auto &key_parms = this->key_context_data()->parms();
-        auto &key_modulus = key_parms.coeff_modulus();
-        auto modswitch_factors = this->key_context_data()->rns_tool()->inv_q_last_mod_q();
+        if (parameters_set()) {
+            size_t coeff_count = parms.poly_modulus_degree();
+            auto &key_parms = this->key_context_data()->parms();
+            auto &key_modulus = key_parms.coeff_modulus();
+            auto modswitch_factors = this->key_context_data()->rns_tool()->inv_q_last_mod_q();
 
-        size_t root_of_unity_powers_size = coeff_count * key_modulus.size() * 4;
-        root_of_unity_powers_.resize(root_of_unity_powers_size);
+            size_t root_of_unity_powers_size = coeff_count * key_modulus.size() * 4;
+            root_of_unity_powers_.resize(root_of_unity_powers_size);
 
-        keyswitch::loadTwiddleFactors(coeff_count, key_modulus.size(), key_modulus.data(),
-                                      root_of_unity_powers_.data());
+            keyswitch::loadTwiddleFactors(coeff_count, key_modulus.size(), key_modulus.data(),
+            root_of_unity_powers_.data());
 
-        keyswitch::buildModulusMeta(key_modulus.size(), key_modulus.data(),
-                                    modswitch_factors, &modulus_meta_);
+            keyswitch::buildModulusMeta(key_modulus.size(), key_modulus.data(),
+            modswitch_factors, &modulus_meta_);
 
-        keyswitch::buildInvnMeta(coeff_count, key_modulus.size(), key_modulus.data(),
-                                 root_of_unity_powers_.data(), &invn_);
+            keyswitch::buildInvnMeta(coeff_count, key_modulus.size(), key_modulus.data(),
+            root_of_unity_powers_.data(), &invn_);
+        }
 #endif
     }
 } // namespace seal
