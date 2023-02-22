@@ -14,7 +14,8 @@
 #ifdef SEAL_USE_INTEL_HEXL
 #include <inaccel/shm>
 
-typedef struct {
+typedef struct
+{
     inaccel::vector<DyadmultKeys1_t> key1;
     inaccel::vector<DyadmultKeys2_t> key2;
     inaccel::vector<DyadmultKeys3_t> key3;

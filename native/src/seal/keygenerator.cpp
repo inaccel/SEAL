@@ -223,15 +223,17 @@ namespace seal
             generate_one_kswitch_key(rotated_secret_key, galois_keys.data()[index], save_seed);
 #ifdef SEAL_USE_INTEL_HEXL
             std::vector<const uint64_t *> kswitch_keys;
-            for (auto &key : galois_keys.data()[index]) {
+            for (auto &key : galois_keys.data()[index])
+            {
                 kswitch_keys.push_back(key.data().data());
             }
             FPGAPublicKey &fpga_key = galois_keys.fpga_data()[index];
             fpga_key.key1.resize(coeff_count * decomp_mod_count);
             fpga_key.key2.resize(coeff_count * decomp_mod_count);
             fpga_key.key3.resize(coeff_count * decomp_mod_count);
-            keyswitch::loadKeys(coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(),
-                fpga_key.key1.data(), fpga_key.key2.data(), fpga_key.key3.data());
+            keyswitch::loadKeys(
+                coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(), fpga_key.key1.data(),
+                fpga_key.key2.data(), fpga_key.key3.data());
 #endif
         }
 
@@ -390,7 +392,8 @@ namespace seal
             this->generate_one_kswitch_key(get<0>(I), get<1>(I), save_seed);
 #ifdef SEAL_USE_INTEL_HEXL
             std::vector<const uint64_t *> kswitch_keys;
-            for (auto &key : get<1>(I)) {
+            for (auto &key : get<1>(I))
+            {
                 kswitch_keys.push_back(key.data().data());
             }
             FPGAPublicKey &fpga_key = get<2>(I);
@@ -398,8 +401,9 @@ namespace seal
             fpga_key.key2.resize(coeff_count * decomp_mod_count);
             fpga_key.key3.resize(coeff_count * decomp_mod_count);
 
-            keyswitch::loadKeys(coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(),
-                fpga_key.key1.data(), fpga_key.key2.data(), fpga_key.key3.data());
+            keyswitch::loadKeys(
+                coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(), fpga_key.key1.data(),
+                fpga_key.key2.data(), fpga_key.key3.data());
 #endif
         });
     }

@@ -1163,7 +1163,8 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
     void Evaluator::relinearize_internal(
-        Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, size_t destination_size, MemoryPoolHandle pool) const
+        Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, size_t destination_size,
+        MemoryPoolHandle pool) const
     {
         // Verify parameters.
         if (relin_keys.parms_id() != context_.key_parms_id())
@@ -2398,7 +2399,8 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
     void Evaluator::apply_galois_inplace(
-        Ciphertext *encrypted, size_t chunk_size, uint32_t galois_elt, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
+        Ciphertext *encrypted, size_t chunk_size, uint32_t galois_elt, const GaloisKeys &galois_keys,
+        MemoryPoolHandle pool) const
     {
         std::vector<Pointer<long unsigned int, void>> poly(chunk_size);
         std::vector<RNSIter> temp(chunk_size);
@@ -2498,7 +2500,8 @@ namespace seal
 
         // Calculate (temp * galois_key[0], temp * galois_key[1]) + (ct[0], 0)
         switch_key_inplace(
-            encrypted, chunk_size, (ConstRNSIter *) temp.data(), static_cast<const KSwitchKeys &>(galois_keys), GaloisKeys::get_index(galois_elt), pool);
+            encrypted, chunk_size, (ConstRNSIter *)temp.data(), static_cast<const KSwitchKeys &>(galois_keys),
+            GaloisKeys::get_index(galois_elt), pool);
 
         for (size_t i = 0; i < chunk_size; i++)
         {
@@ -2577,14 +2580,14 @@ namespace seal
         for (size_t i = 0; i < chunk_size; i++)
         {
             auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
-                if (!context_data_ptr)
-                {
-                    throw invalid_argument("encrypted is not valid for encryption parameters");
-                }
-                if (!context_data_ptr->qualifiers().using_batching)
-                {
-                    throw logic_error("encryption parameters do not support batching");
-                }
+            if (!context_data_ptr)
+            {
+                throw invalid_argument("encrypted is not valid for encryption parameters");
+            }
+            if (!context_data_ptr->qualifiers().using_batching)
+            {
+                throw logic_error("encryption parameters do not support batching");
+            }
         }
         if (galois_keys.parms_id() != context_.key_parms_id())
         {
@@ -2715,19 +2718,18 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
         bool valid_moduli = true;
-        for (uint64_t i; i < decomp_modulus_size; i ++) {
-            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52))) {
+        for (uint64_t i; i < decomp_modulus_size; i++)
+        {
+            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52)))
+            {
                 valid_moduli = false;
                 break;
             }
         }
 
-        if (scheme == scheme_type::ckks
-            && (coeff_count >= 1024 && coeff_count <= 16384)
-            && (coeff_count & (coeff_count -1) != 0)
-            && (key_modulus_size == 7)
-            && (key_component_count == 2)
-            && valid_moduli)
+        if (scheme == scheme_type::ckks && (coeff_count >= 1024 && coeff_count <= 16384) &&
+            (coeff_count & (coeff_count - 1) != 0) && (key_modulus_size == 7) && (key_component_count == 2) &&
+            valid_moduli)
         {
             const uint64_t *t_target_iter_ptr = &(*target_iter)[0];
 
@@ -2746,9 +2748,9 @@ namespace seal
             memcpy(fpga_input, t_target_iter_ptr, input_size * sizeof(uint64_t));
 
             inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
-            keyswitch.arg((int) chunk_size)
+            keyswitch.arg((int)chunk_size)
                 .arg(chunk_size)
-                .arg((int) coeff_count)
+                .arg((int)coeff_count)
                 .arg(coeff_count)
                 .arg(context_.modulus_meta())
                 .arg(context_.invn())
@@ -2763,13 +2765,13 @@ namespace seal
                 .arg(input_size)
                 .arg_array<uint64_t>(fpga_output, fpga_output + output_size)
                 .arg(output_size)
-                .arg((uint64_t) 0)
+                .arg((uint64_t)0)
                 .arg(1);
 
             inaccel::submit(keyswitch).get();
 
-            keyswitch::readOutput(coeff_count, decomp_modulus_size, key_modulus.data(),
-                                  fpga_output, encrypted.data(), chunk_size);
+            keyswitch::readOutput(
+                coeff_count, decomp_modulus_size, key_modulus.data(), fpga_output, encrypted.data(), chunk_size);
 
             alloc_uint64_t.deallocate(fpga_output, output_size);
             alloc_uint64_t.deallocate(fpga_input, input_size);
@@ -3018,7 +3020,8 @@ namespace seal
             throw invalid_argument("pool is uninitialized");
         }
 
-        for (size_t i = 0; i < chunk_size; i++){
+        for (size_t i = 0; i < chunk_size; i++)
+        {
             auto parms_id = encrypted[i].parms_id();
             auto &context_data = *context_.get_context_data(parms_id);
             auto &parms = context_data.parms();
@@ -3080,24 +3083,30 @@ namespace seal
             }
         }
 
-        if (coeff_count < 1024 || coeff_count > 16384 || coeff_count & (coeff_count -1) == 0) {
+        if (coeff_count < 1024 || coeff_count > 16384 || coeff_count & (coeff_count - 1) == 0)
+        {
             throw out_of_range("coeff_count");
         }
-        if (key_modulus_size != 7) {
+        if (key_modulus_size != 7)
+        {
             throw invalid_argument("key_modulus_size must be 7");
         }
-        if (key_component_count != 2) {
+        if (key_component_count != 2)
+        {
             throw invalid_argument("key_component_count must be 2");
         }
 
         bool valid_moduli = true;
-        for (uint64_t i; i < decomp_modulus_size; i ++) {
-            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52))) {
+        for (uint64_t i; i < decomp_modulus_size; i++)
+        {
+            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52)))
+            {
                 valid_moduli = false;
                 break;
             }
         }
-        if (!valid_moduli) {
+        if (!valid_moduli)
+        {
             throw invalid_argument("key_modulus is not supported for FPGA execution");
         }
 
@@ -3108,38 +3117,41 @@ namespace seal
         uint64_t *fpga_input = alloc_uint64_t.allocate(chunk_size * input_size);
         uint64_t *fpga_output = alloc_uint64_t.allocate(chunk_size * output_size);
 
-        for (size_t i = 0; i < chunk_size; i++) {
+        for (size_t i = 0; i < chunk_size; i++)
+        {
             const uint64_t *t_target_iter_ptr = &(*target_iter[i])[0];
 
             memcpy(fpga_input + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
         }
 
         inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
-        keyswitch.arg((int) chunk_size)
-        .arg(chunk_size)
-        .arg((int) coeff_count)
-        .arg(coeff_count)
-        .arg(context_.modulus_meta())
-        .arg(context_.invn())
-        .arg(decomp_modulus_size)
-        .arg(context_.root_of_unity_powers())
-        .arg(context_.root_of_unity_powers().size())
-        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
-        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
-        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
-        .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1.size())
-        .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
-        .arg(chunk_size * input_size)
-        .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size)
-        .arg(chunk_size * output_size)
-        .arg((uint64_t) 0)
-        .arg(1);
+        keyswitch.arg((int)chunk_size)
+            .arg(chunk_size)
+            .arg((int)coeff_count)
+            .arg(coeff_count)
+            .arg(context_.modulus_meta())
+            .arg(context_.invn())
+            .arg(decomp_modulus_size)
+            .arg(context_.root_of_unity_powers())
+            .arg(context_.root_of_unity_powers().size())
+            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
+            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
+            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
+            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1.size())
+            .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
+            .arg(chunk_size * input_size)
+            .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size)
+            .arg(chunk_size * output_size)
+            .arg((uint64_t)0)
+            .arg(1);
 
         inaccel::submit(keyswitch).get();
 
-        for (size_t i = 0; i < chunk_size; i++) {
-            keyswitch::readOutput(coeff_count, decomp_modulus_size, key_modulus.data(),
-                fpga_output + i * output_size, encrypted[i].data(), 1);
+        for (size_t i = 0; i < chunk_size; i++)
+        {
+            keyswitch::readOutput(
+                coeff_count, decomp_modulus_size, key_modulus.data(), fpga_output + i * output_size,
+                encrypted[i].data(), 1);
         }
 
         alloc_uint64_t.deallocate(fpga_output, chunk_size * output_size);

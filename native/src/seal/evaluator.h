@@ -305,9 +305,9 @@ namespace seal
         }
 
         /**
-        Relinearizes a chunk of ciphertexts. This functions relinearizes encrypted, reducing its size down to 2. If the size of
-        each encrypted element is K+1, the given relinearization keys need to have size at least K-1. Dynamic memory allocations in
-        the process are allocated from the memory pool pointed to by the given MemoryPoolHandle.
+        Relinearizes a chunk of ciphertexts. This functions relinearizes encrypted, reducing its size down to 2. If the
+        size of each encrypted element is K+1, the given relinearization keys need to have size at least K-1. Dynamic
+        memory allocations in the process are allocated from the memory pool pointed to by the given MemoryPoolHandle.
 
         @param[in] encrypted The ciphertexts to relinearize
         @param[in] relin_keys The relinearization keys
@@ -321,7 +321,8 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         inline void relinearize_inplace(
-            Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, MemoryPoolHandle pool = MemoryManager::GetPool()) const
+            Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys,
+            MemoryPoolHandle pool = MemoryManager::GetPool()) const
         {
             relinearize_internal(encrypted, chunk_size, relin_keys, 2, std::move(pool));
         }
@@ -353,10 +354,10 @@ namespace seal
         }
 
         /**
-        Relinearizes a chunk of ciphertexts. This functions relinearizes encrypted, reducing its size down to 2, and stores the
-        results in the destination parameter. If the size of each encrypted element is K+1, the given relinearization keys need to
-        have size at least K-1. Dynamic memory allocations in the process are allocated from the memory pool pointed to
-        by the given MemoryPoolHandle.
+        Relinearizes a chunk of ciphertexts. This functions relinearizes encrypted, reducing its size down to 2, and
+        stores the results in the destination parameter. If the size of each encrypted element is K+1, the given
+        relinearization keys need to have size at least K-1. Dynamic memory allocations in the process are allocated
+        from the memory pool pointed to by the given MemoryPoolHandle.
 
         @param[in] encrypted The ciphertexts to relinearize
         @param[in] relin_keys The relinearization keys
@@ -942,9 +943,9 @@ namespace seal
             MemoryPoolHandle pool = MemoryManager::GetPool()) const;
 
         /**
-        Applies a Galois automorphism to a chunk of ciphertexts. To evaluate the Galois automorphism, an appropriate set of Galois
-        keys must also be provided. Dynamic memory allocations in the process are allocated from the memory pool pointed
-        to by the given MemoryPoolHandle.
+        Applies a Galois automorphism to a chunk of ciphertexts. To evaluate the Galois automorphism, an appropriate set
+        of Galois keys must also be provided. Dynamic memory allocations in the process are allocated from the memory
+        pool pointed to by the given MemoryPoolHandle.
 
         The desired Galois automorphism is given as a Galois element, and must be an odd integer in the interval
         [1, M-1], where M = 2*N, and N = poly_modulus_degree. Used with batching, a Galois element 3^i % M corresponds
@@ -1184,11 +1185,11 @@ namespace seal
         }
 
         /**
-        Rotates a chunk of plaintext vectors cyclically. When using the CKKS scheme, this function rotates the encrypted plaintext
-        vectors cyclically to the left (steps > 0) or to the right (steps < 0). Since the size of the batched matrix is
-        2-by-(N/2), where N is the degree of the polynomial modulus, the number of steps to rotate must have absolute
-        value at most N/2-1. Dynamic memory allocations in the process are allocated from the memory pool pointed to by
-        the given MemoryPoolHandle.
+        Rotates a chunk of plaintext vectors cyclically. When using the CKKS scheme, this function rotates the encrypted
+        plaintext vectors cyclically to the left (steps > 0) or to the right (steps < 0). Since the size of the batched
+        matrix is 2-by-(N/2), where N is the degree of the polynomial modulus, the number of steps to rotate must have
+        absolute value at most N/2-1. Dynamic memory allocations in the process are allocated from the memory pool
+        pointed to by the given MemoryPoolHandle.
 
         @param[in] encrypted The ciphertexts to rotate
         @param[in] steps The number of steps to rotate (positive left, negative right)
@@ -1252,11 +1253,11 @@ namespace seal
         }
 
         /**
-        Rotates a chunk of plaintext vectors cyclically. When using the CKKS scheme, this function rotates the encrypted plaintext
-        vectors cyclically to the left (steps > 0) or to the right (steps < 0) and writes the results to the destination
-        parameter. Since the size of the batched matrix is 2-by-(N/2), where N is the degree of the polynomial modulus,
-        the number of steps to rotate must have absolute value at most N/2-1. Dynamic memory allocations in the process
-        are allocated from the memory pool pointed to by the given MemoryPoolHandle.
+        Rotates a chunk of plaintext vectors cyclically. When using the CKKS scheme, this function rotates the encrypted
+        plaintext vectors cyclically to the left (steps > 0) or to the right (steps < 0) and writes the results to the
+        destination parameter. Since the size of the batched matrix is 2-by-(N/2), where N is the degree of the
+        polynomial modulus, the number of steps to rotate must have absolute value at most N/2-1. Dynamic memory
+        allocations in the process are allocated from the memory pool pointed to by the given MemoryPoolHandle.
 
         @param[in] encrypted The ciphertexts to rotate
         @param[in] steps The number of steps to rotate (positive left, negative right)
@@ -1277,10 +1278,11 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         inline void rotate_vector(
-            const Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys, Ciphertext *destination,
-            MemoryPoolHandle pool = MemoryManager::GetPool()) const
+            const Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+            Ciphertext *destination, MemoryPoolHandle pool = MemoryManager::GetPool()) const
         {
-            for (size_t i = 0; i < chunk_size; i++) {
+            for (size_t i = 0; i < chunk_size; i++)
+            {
                 destination[i] = encrypted[i];
             }
 
@@ -1393,7 +1395,8 @@ namespace seal
             Ciphertext &encrypted, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const;
 
         void rotate_internal(
-            Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const;
+            Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+            MemoryPoolHandle pool) const;
 
         inline void conjugate_internal(
             Ciphertext &encrypted, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
