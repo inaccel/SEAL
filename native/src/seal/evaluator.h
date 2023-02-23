@@ -321,7 +321,7 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         inline void relinearize_inplace(
-            Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys,
+            Ciphertext **encrypted, size_t chunk_size, const RelinKeys &relin_keys,
             MemoryPoolHandle pool = MemoryManager::GetPool()) const
         {
             relinearize_internal(encrypted, chunk_size, relin_keys, 2, std::move(pool));
@@ -372,12 +372,12 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         inline void relinearize(
-            const Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, Ciphertext *destination,
+            const Ciphertext **encrypted, size_t chunk_size, const RelinKeys &relin_keys, Ciphertext **destination,
             MemoryPoolHandle pool = MemoryManager::GetPool()) const
         {
             for (size_t i = 0; i < chunk_size; i++)
             {
-                destination[i] = encrypted[i];
+                *destination[i] = *encrypted[i];
             }
             relinearize_inplace(destination, chunk_size, relin_keys, std::move(pool));
         }
@@ -971,7 +971,7 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         void apply_galois_inplace(
-            Ciphertext *encrypted, size_t chunk_size, std::uint32_t galois_elt, const GaloisKeys &galois_keys,
+            Ciphertext **encrypted, size_t chunk_size, std::uint32_t galois_elt, const GaloisKeys &galois_keys,
             MemoryPoolHandle pool = MemoryManager::GetPool()) const;
 
         /**
@@ -1209,7 +1209,7 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         inline void rotate_vector_inplace(
-            Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+            Ciphertext **encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
             MemoryPoolHandle pool = MemoryManager::GetPool()) const
         {
             if (context_.key_context_data()->parms().scheme() != scheme_type::ckks)
@@ -1278,12 +1278,12 @@ namespace seal
         @throws std::logic_error if result ciphertexts are transparent
         */
         inline void rotate_vector(
-            const Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
-            Ciphertext *destination, MemoryPoolHandle pool = MemoryManager::GetPool()) const
+            const Ciphertext **encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+            Ciphertext **destination, MemoryPoolHandle pool = MemoryManager::GetPool()) const
         {
             for (size_t i = 0; i < chunk_size; i++)
             {
-                destination[i] = encrypted[i];
+                *destination[i] = *encrypted[i];
             }
 
             rotate_vector_inplace(destination, chunk_size, steps, galois_keys, std::move(pool));
@@ -1381,7 +1381,7 @@ namespace seal
             MemoryPoolHandle pool) const;
 
         void relinearize_internal(
-            Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, std::size_t destination_size,
+            Ciphertext **encrypted, size_t chunk_size, const RelinKeys &relin_keys, std::size_t destination_size,
             MemoryPoolHandle pool) const;
 
         void mod_switch_scale_to_next(
@@ -1395,7 +1395,7 @@ namespace seal
             Ciphertext &encrypted, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const;
 
         void rotate_internal(
-            Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+            Ciphertext **encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
             MemoryPoolHandle pool) const;
 
         inline void conjugate_internal(
@@ -1426,7 +1426,7 @@ namespace seal
             std::size_t key_index, MemoryPoolHandle pool = MemoryManager::GetPool()) const;
 
         void switch_key_inplace(
-            Ciphertext *encrypted, size_t chunk_size, util::ConstRNSIter *target_iter, const KSwitchKeys &kswitch_keys,
+            Ciphertext **encrypted, size_t chunk_size, util::ConstRNSIter *target_iter, const KSwitchKeys &kswitch_keys,
             size_t kswitch_keys_index, MemoryPoolHandle pool) const;
 
         void multiply_plain_normal(Ciphertext &encrypted, const Plaintext &plain, MemoryPoolHandle pool) const;

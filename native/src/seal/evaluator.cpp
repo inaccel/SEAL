@@ -1163,7 +1163,7 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
     void Evaluator::relinearize_internal(
-        Ciphertext *encrypted, size_t chunk_size, const RelinKeys &relin_keys, size_t destination_size,
+        Ciphertext **encrypted, size_t chunk_size, const RelinKeys &relin_keys, size_t destination_size,
         MemoryPoolHandle pool) const
     {
         // Verify parameters.
@@ -1175,13 +1175,13 @@ namespace seal
         std::vector<ConstRNSIter> encrypted_rns_iter(chunk_size);
         for (size_t i = 0; i < chunk_size; i++)
         {
-            auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
+            auto context_data_ptr = context_.get_context_data(encrypted[i]->parms_id());
             if (!context_data_ptr)
             {
                 throw invalid_argument("encrypted is not valid for encryption parameters");
             }
 
-            size_t encrypted_size = encrypted[i].size();
+            size_t encrypted_size = encrypted[i]->size();
 
             // Verify parameters.
             if (destination_size < 2 || destination_size > encrypted_size)
@@ -1199,7 +1199,7 @@ namespace seal
                 return;
             }
 
-            auto encrypted_iter = iter(encrypted[i]);
+            auto encrypted_iter = iter(*encrypted[i]);
             encrypted_iter += encrypted_size - 1;
             encrypted_rns_iter[i] = *encrypted_iter;
 
@@ -1213,18 +1213,18 @@ namespace seal
 
         this->switch_key_inplace(
             encrypted, chunk_size, encrypted_rns_iter.data(), static_cast<const KSwitchKeys &>(relin_keys),
-            RelinKeys::get_index(encrypted[0].size() - 1), pool);
+            RelinKeys::get_index(encrypted[0]->size() - 1), pool);
 
         for (size_t i = 0; i < chunk_size; i++)
         {
-            auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
+            auto context_data_ptr = context_.get_context_data(encrypted[i]->parms_id());
 
             // Put the output of final relinearization into destination.
             // Prepare destination only at this point because we are resizing down
-            encrypted[i].resize(context_, context_data_ptr->parms_id(), destination_size);
+            encrypted[i]->resize(context_, context_data_ptr->parms_id(), destination_size);
 #ifdef SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
             // Transparent ciphertext output is not allowed.
-            if (encrypted[i].is_transparent())
+            if (encrypted[i]->is_transparent())
             {
                 throw logic_error("result ciphertext is transparent");
             }
@@ -2399,7 +2399,7 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
     void Evaluator::apply_galois_inplace(
-        Ciphertext *encrypted, size_t chunk_size, uint32_t galois_elt, const GaloisKeys &galois_keys,
+        Ciphertext **encrypted, size_t chunk_size, uint32_t galois_elt, const GaloisKeys &galois_keys,
         MemoryPoolHandle pool) const
     {
         std::vector<Pointer<long unsigned int, void>> poly(chunk_size);
@@ -2408,7 +2408,7 @@ namespace seal
         for (size_t i = 0; i < chunk_size; i++)
         {
             // Verify parameters.
-            if (!is_metadata_valid_for(encrypted[i], context_) || !is_buffer_valid(encrypted[i]))
+            if (!is_metadata_valid_for(*encrypted[i], context_) || !is_buffer_valid(*encrypted[i]))
             {
                 throw invalid_argument("encrypted is not valid for encryption parameters");
             }
@@ -2419,12 +2419,12 @@ namespace seal
                 throw invalid_argument("galois_keys is not valid for encryption parameters");
             }
 
-            auto &context_data = *context_.get_context_data(encrypted[i].parms_id());
+            auto &context_data = *context_.get_context_data(encrypted[i]->parms_id());
             auto &parms = context_data.parms();
             auto &coeff_modulus = parms.coeff_modulus();
             size_t coeff_count = parms.poly_modulus_degree();
             size_t coeff_modulus_size = coeff_modulus.size();
-            size_t encrypted_size = encrypted[i].size();
+            size_t encrypted_size = encrypted[i]->size();
             // Use key_context_data where permutation tables exist since previous runs.
             auto galois_tool = context_.key_context_data()->galois_tool();
 
@@ -2463,11 +2463,11 @@ namespace seal
                 // !!! DO NOT CHANGE EXECUTION ORDER!!!
 
                 // First transform encrypted[i].data(0)
-                auto encrypted_iter = iter(encrypted[i]);
+                auto encrypted_iter = iter(*encrypted[i]);
                 galois_tool->apply_galois(encrypted_iter[0], coeff_modulus_size, galois_elt, coeff_modulus, temp[i]);
 
                 // Copy result to encrypted[i].data(0)
-                set_poly(temp[i], coeff_count, coeff_modulus_size, encrypted[i].data(0));
+                set_poly(temp[i], coeff_count, coeff_modulus_size, encrypted[i]->data(0));
 
                 // Next transform encrypted[i].data(1)
                 galois_tool->apply_galois(encrypted_iter[1], coeff_modulus_size, galois_elt, coeff_modulus, temp[i]);
@@ -2477,11 +2477,11 @@ namespace seal
                 // !!! DO NOT CHANGE EXECUTION ORDER!!!
 
                 // First transform encrypted[i].data(0)
-                auto encrypted_iter = iter(encrypted[i]);
+                auto encrypted_iter = iter(*encrypted[i]);
                 galois_tool->apply_galois_ntt(encrypted_iter[0], coeff_modulus_size, galois_elt, temp[i]);
 
                 // Copy result to encrypted[i].data(0)
-                set_poly(temp[i], coeff_count, coeff_modulus_size, encrypted[i].data(0));
+                set_poly(temp[i], coeff_count, coeff_modulus_size, encrypted[i]->data(0));
 
                 // Next transform encrypted[i].data(1)
                 galois_tool->apply_galois_ntt(encrypted_iter[1], coeff_modulus_size, galois_elt, temp[i]);
@@ -2492,7 +2492,7 @@ namespace seal
             }
 
             // Wipe encrypted[i].data(1)
-            set_zero_poly(coeff_count, coeff_modulus_size, encrypted[i].data(1));
+            set_zero_poly(coeff_count, coeff_modulus_size, encrypted[i]->data(1));
 
             // END: Apply Galois for each ciphertext
             // REORDERING IS SAFE NOW
@@ -2507,7 +2507,7 @@ namespace seal
         {
 #ifdef SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
             // Transparent ciphertext output is not allowed.
-            if (encrypted[i].is_transparent())
+            if (encrypted[i]->is_transparent())
             {
                 throw logic_error("result ciphertext is transparent");
             }
@@ -2575,11 +2575,12 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
     void Evaluator::rotate_internal(
-        Ciphertext *encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys, MemoryPoolHandle pool) const
+        Ciphertext **encrypted, size_t chunk_size, int steps, const GaloisKeys &galois_keys,
+        MemoryPoolHandle pool) const
     {
         for (size_t i = 0; i < chunk_size; i++)
         {
-            auto context_data_ptr = context_.get_context_data(encrypted[i].parms_id());
+            auto context_data_ptr = context_.get_context_data(encrypted[i]->parms_id());
             if (!context_data_ptr)
             {
                 throw invalid_argument("encrypted is not valid for encryption parameters");
@@ -2600,7 +2601,7 @@ namespace seal
             return;
         }
 
-        auto context_data_ptr = context_.get_context_data(encrypted[0].parms_id());
+        auto context_data_ptr = context_.get_context_data(encrypted[0]->parms_id());
         size_t coeff_count = context_data_ptr->parms().poly_modulus_degree();
         auto galois_tool = context_data_ptr->galois_tool();
 
@@ -2999,7 +3000,7 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
     void Evaluator::switch_key_inplace(
-        Ciphertext *encrypted, size_t chunk_size, ConstRNSIter *target_iter, const KSwitchKeys &kswitch_keys,
+        Ciphertext **encrypted, size_t chunk_size, ConstRNSIter *target_iter, const KSwitchKeys &kswitch_keys,
         size_t kswitch_keys_index, MemoryPoolHandle pool) const
     {
         auto &key_context_data = *context_.key_context_data();
@@ -3022,13 +3023,13 @@ namespace seal
 
         for (size_t i = 0; i < chunk_size; i++)
         {
-            auto parms_id = encrypted[i].parms_id();
+            auto parms_id = encrypted[i]->parms_id();
             auto &context_data = *context_.get_context_data(parms_id);
             auto &parms = context_data.parms();
             auto scheme = parms.scheme();
 
             // Verify parameters.
-            if (!is_metadata_valid_for(encrypted[i], context_) || !is_buffer_valid(encrypted[i]))
+            if (!is_metadata_valid_for(*encrypted[i], context_) || !is_buffer_valid(*encrypted[i]))
             {
                 throw invalid_argument("encrypted is not valid for encryption parameters");
             }
@@ -3042,15 +3043,15 @@ namespace seal
             }
             if (scheme != scheme_type::ckks)
             {
-                throw invalid_argument("FPGA switch_key_inplace only supported with CKKS sheme");
+                throw invalid_argument("FPGA switch_key_inplace only supported with CKKS scheme");
             }
-            if (!encrypted[i].is_ntt_form())
+            if (!encrypted[i]->is_ntt_form())
             {
                 throw invalid_argument("CKKS encrypted must be in NTT form");
             }
         }
 
-        auto parms_id = encrypted[0].parms_id();
+        auto parms_id = encrypted[0]->parms_id();
         auto &context_data = *context_.get_context_data(parms_id);
         auto &parms = context_data.parms();
         auto scheme = parms.scheme();
@@ -3151,7 +3152,7 @@ namespace seal
         {
             keyswitch::readOutput(
                 coeff_count, decomp_modulus_size, key_modulus.data(), fpga_output + i * output_size,
-                encrypted[i].data(), 1);
+                encrypted[i]->data(), 1);
         }
 
         alloc_uint64_t.deallocate(fpga_output, chunk_size * output_size);
