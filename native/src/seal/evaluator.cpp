@@ -2749,25 +2749,17 @@ namespace seal
             memcpy(fpga_input, t_target_iter_ptr, input_size * sizeof(uint64_t));
 
             inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
-            keyswitch.arg((int)chunk_size)
-                .arg(chunk_size)
-                .arg((int)coeff_count)
+            keyswitch.arg(chunk_size)
                 .arg(coeff_count)
+                .arg(decomp_modulus_size)
                 .arg(context_.modulus_meta())
                 .arg(context_.invn())
-                .arg(decomp_modulus_size)
-                .arg(context_.root_of_unity_powers())
-                .arg(root_of_unity_powers_size)
+                .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
                 .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
                 .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
                 .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
-                .arg(key_size)
-                .arg_array<uint64_t>(fpga_input, fpga_input + input_size)
-                .arg(input_size)
-                .arg_array<uint64_t>(fpga_output, fpga_output + output_size)
-                .arg(output_size)
-                .arg((uint64_t)0)
-                .arg(1);
+                .arg(context_.root_of_unity_powers())
+                .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size);
 
             inaccel::submit(keyswitch).get();
 
@@ -3126,25 +3118,17 @@ namespace seal
         }
 
         inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
-        keyswitch.arg((int)chunk_size)
-            .arg(chunk_size)
-            .arg((int)coeff_count)
+        keyswitch.arg(chunk_size)
             .arg(coeff_count)
+            .arg(decomp_modulus_size)
             .arg(context_.modulus_meta())
             .arg(context_.invn())
-            .arg(decomp_modulus_size)
-            .arg(context_.root_of_unity_powers())
-            .arg(context_.root_of_unity_powers().size())
+            .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
-            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1.size())
-            .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
-            .arg(chunk_size * input_size)
-            .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size)
-            .arg(chunk_size * output_size)
-            .arg((uint64_t)0)
-            .arg(1);
+            .arg(context_.root_of_unity_powers())
+            .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size);
 
         inaccel::submit(keyswitch).get();
 

@@ -528,7 +528,7 @@ namespace seal
             auto &key_modulus = key_parms.coeff_modulus();
             auto modswitch_factors = this->key_context_data()->rns_tool()->inv_q_last_mod_q();
 
-            size_t root_of_unity_powers_size = coeff_count * key_modulus.size() * 4;
+            size_t root_of_unity_powers_size = coeff_count * key_modulus.size() * 2;
             root_of_unity_powers_.resize(root_of_unity_powers_size);
 
             keyswitch::loadTwiddleFactors(

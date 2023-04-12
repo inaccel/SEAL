@@ -13,7 +13,6 @@ set(SEAL_SOURCE_FILES ${SEAL_SOURCE_FILES}
     ${CMAKE_CURRENT_LIST_DIR}/galois.cpp
     ${CMAKE_CURRENT_LIST_DIR}/hash.cpp
     ${CMAKE_CURRENT_LIST_DIR}/iterator.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/keyswitch.cpp
     ${CMAKE_CURRENT_LIST_DIR}/mempool.cpp
     ${CMAKE_CURRENT_LIST_DIR}/numth.cpp
     ${CMAKE_CURRENT_LIST_DIR}/polyarithsmallmod.cpp
@@ -47,7 +46,6 @@ install(
         ${CMAKE_CURRENT_LIST_DIR}/hash.h
         ${CMAKE_CURRENT_LIST_DIR}/hestdparms.h
         ${CMAKE_CURRENT_LIST_DIR}/iterator.h
-        ${CMAKE_CURRENT_LIST_DIR}/keyswitch.h
         ${CMAKE_CURRENT_LIST_DIR}/locks.h
         ${CMAKE_CURRENT_LIST_DIR}/mempool.h
         ${CMAKE_CURRENT_LIST_DIR}/msvc.h

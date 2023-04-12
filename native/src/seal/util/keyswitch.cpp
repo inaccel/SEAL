@@ -16,8 +16,7 @@ namespace seal
         {
             void ComputeRootOfUnityPowers(
                 uint64_t m_q, uint64_t m_degree, uint64_t m_degree_bits, uint64_t m_w,
-                uint64_t *inv_root_of_unity_powers, uint64_t *precon64_inv_root_of_unity_powers,
-                uint64_t *root_of_unity_powers, uint64_t *precon64_root_of_unity_powers)
+                uint64_t *inv_root_of_unity_powers, uint64_t *root_of_unity_powers)
             {
                 uint64_t inv_root_of_unity_powers_pre[MAX_DEGREE];
 
@@ -36,12 +35,6 @@ namespace seal
                     prev_idx = idx;
                 }
 
-                precon64_root_of_unity_powers[0] = 0;
-                for (size_t i = 1; i < m_degree; i++)
-                {
-                    precon64_root_of_unity_powers[i] = MultiplyFactor(root_of_unity_powers[i], 64, m_q).BarrettFactor();
-                }
-
                 idx = 0;
 
                 for (size_t m = (m_degree >> 1); m > 0; m >>= 1)
@@ -54,12 +47,6 @@ namespace seal
                 }
 
                 inv_root_of_unity_powers[m_degree - 1] = 0;
-
-                for (uint64_t i = 0; i < m_degree; i++)
-                {
-                    precon64_inv_root_of_unity_powers[i] =
-                        MultiplyFactor(inv_root_of_unity_powers[i], 64, m_q).BarrettFactor();
-                }
             }
 
             void loadTwiddleFactors(
@@ -69,8 +56,7 @@ namespace seal
                 {
                     ComputeRootOfUnityPowers(
                         moduli[i].value(), n, Log2(n), MinimalPrimitiveRoot(2 * n, moduli[i].value()),
-                        root_of_unity_powers_ptr + i * n * 4, root_of_unity_powers_ptr + i * n * 4 + n,
-                        root_of_unity_powers_ptr + i * n * 4 + n * 2, root_of_unity_powers_ptr + i * n * 4 + n * 3);
+                        root_of_unity_powers_ptr + i * n * 2, root_of_unity_powers_ptr + i * n * 2 + n);
                 }
             }
 
@@ -116,7 +102,7 @@ namespace seal
                 for (uint64_t i = 0; i < key_modulus_size; i++)
                 {
                     uint64_t inv_n = InverseMod(n, moduli[i].value());
-                    uint64_t W_op = root_of_unity_powers_ptr[i * n * 4 + n - 1];
+                    uint64_t W_op = root_of_unity_powers_ptr[i * n * 2 + n - 1];
                     uint64_t inv_nw = MultiplyMod(inv_n, W_op, moduli[i].value());
                     uint64_t y_barrett_n = DivideUInt128UInt64Lo(inv_n, 0, moduli[i].value());
                     uint64_t y_barrett_nw = DivideUInt128UInt64Lo(inv_nw, 0, moduli[i].value());
