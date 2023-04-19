@@ -2717,62 +2717,6 @@ namespace seal
             }
         }
 
-#ifdef SEAL_USE_INTEL_HEXL
-        bool valid_moduli = true;
-        for (uint64_t i; i < decomp_modulus_size; i++)
-        {
-            if ((key_modulus[i] < (1UL << 16)) || (key_modulus[i] > (1UL << 52)))
-            {
-                valid_moduli = false;
-                break;
-            }
-        }
-
-        if (scheme == scheme_type::ckks && (coeff_count >= 1024 && coeff_count <= 16384) &&
-            (coeff_count & (coeff_count - 1) != 0) && (key_modulus_size == 7) && (key_component_count == 2) &&
-            valid_moduli)
-        {
-            const uint64_t *t_target_iter_ptr = &(*target_iter)[0];
-
-            uint64_t chunk_size = 1;
-            inaccel::allocator<uint64_t> alloc_uint64_t;
-
-            size_t root_of_unity_powers_size = coeff_count * key_modulus_size * 4;
-            size_t key_size = decomp_modulus_size * coeff_count;
-            size_t input_size = chunk_size * coeff_count * decomp_modulus_size;
-            size_t output_size = chunk_size * coeff_count * decomp_modulus_size * key_component_count;
-
-            // allocate FPGA arrays
-            uint64_t *fpga_input = alloc_uint64_t.allocate(input_size);
-            uint64_t *fpga_output = alloc_uint64_t.allocate(output_size);
-
-            memcpy(fpga_input, t_target_iter_ptr, input_size * sizeof(uint64_t));
-
-            inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
-            keyswitch.arg(chunk_size)
-                .arg(coeff_count)
-                .arg(decomp_modulus_size)
-                .arg(context_.modulus_meta())
-                .arg(context_.invn())
-                .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
-                .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
-                .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
-                .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
-                .arg(context_.root_of_unity_powers())
-                .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size);
-
-            inaccel::submit(keyswitch).get();
-
-            keyswitch::readOutput(
-                coeff_count, decomp_modulus_size, key_modulus.data(), fpga_output, encrypted.data(), chunk_size);
-
-            alloc_uint64_t.deallocate(fpga_output, output_size);
-            alloc_uint64_t.deallocate(fpga_input, input_size);
-
-            return;
-        }
-#endif
-
         // Create a copy of target_iter
         SEAL_ALLOCATE_GET_RNS_ITER(t_target, coeff_count, decomp_modulus_size, pool);
         set_uint(target_iter, decomp_modulus_size * coeff_count, t_target);
