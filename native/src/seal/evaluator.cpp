@@ -3061,17 +3061,28 @@ namespace seal
             memcpy(fpga_input + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
         }
 
+        const inaccel::vector<uint64_t> root_of_unity_powers = context_.root_of_unity_powers();
+
         inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
         keyswitch.arg(chunk_size)
             .arg(coeff_count)
             .arg(decomp_modulus_size)
             .arg(context_.modulus_meta())
             .arg(context_.invn())
-            .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
-            .arg(context_.root_of_unity_powers())
+            .arg<uint64_t>(root_of_unity_powers.begin()                   , root_of_unity_powers.begin() +  6 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() +  6 * coeff_count, root_of_unity_powers.begin() +  7 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() +  7 * coeff_count, root_of_unity_powers.begin() +  8 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() +  8 * coeff_count, root_of_unity_powers.begin() +  9 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() +  9 * coeff_count, root_of_unity_powers.begin() + 10 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() + 10 * coeff_count, root_of_unity_powers.begin() + 11 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() + 11 * coeff_count, root_of_unity_powers.begin() + 12 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() + 12 * coeff_count, root_of_unity_powers.begin() + 13 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() + 13 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
+            .arg<uint64_t>(root_of_unity_powers.begin() +  7 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
+            .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
             .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size);
 
         inaccel::submit(keyswitch).get();

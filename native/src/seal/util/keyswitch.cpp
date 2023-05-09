@@ -56,7 +56,7 @@ namespace seal
                 {
                     ComputeRootOfUnityPowers(
                         moduli[i].value(), n, Log2(n), MinimalPrimitiveRoot(2 * n, moduli[i].value()),
-                        root_of_unity_powers_ptr + i * n * 2, root_of_unity_powers_ptr + i * n * 2 + n);
+                        root_of_unity_powers_ptr + i * n, root_of_unity_powers_ptr + (key_modulus_size + i) * n);
                 }
             }
 
