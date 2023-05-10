@@ -11,6 +11,7 @@ FetchContent_GetProperties(hexl)
 
 if(NOT hexl_POPULATED)
     FetchContent_Populate(hexl)
+    execute_process(COMMAND bash -c "git -C ${hexl_SOURCE_DIR} apply < cmake/hexl_avx.patch 2>/dev/null")
     set(CMAKE_C_COMPILER ${CMAKE_C_COMPILER} CACHE STRING "" FORCE)
     set(CMAKE_CXX_COMPILER ${CMAKE_CXX_COMPILER} CACHE STRING "" FORCE)
     set(CMAKE_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX} CACHE STRING "" FORCE)

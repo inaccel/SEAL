@@ -382,6 +382,10 @@ install(
 
 # Build only a static library
 if(NOT BUILD_SHARED_LIBS)
+    add_library(coral_api STATIC IMPORTED GLOBAL)
+    find_file(CORAL_API libcoral-api.a /usr/lib /usr/lib64)
+    set_target_properties(coral_api PROPERTIES IMPORTED_LOCATION ${CORAL_API})
+
     add_library(seal STATIC ${SEAL_SOURCE_FILES})
     seal_set_version_filename(seal)
     seal_set_language(seal)
@@ -431,9 +435,10 @@ if(NOT BUILD_SHARED_LIBS)
                 target_link_libraries(seal INTERFACE ${HEXL_INTERFACE_LINK_OPTIONS})
             endif()
             seal_combine_archives(seal HEXL::hexl)
+            seal_combine_archives(seal coral_api)
         else()
             target_link_libraries(seal PUBLIC HEXL::hexl)
-            target_link_libraries(seal PUBLIC coral-api)
+            target_link_libraries(seal PUBLIC coral_api)
         endif()
     endif()
 
