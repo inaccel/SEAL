@@ -3048,20 +3048,20 @@ namespace seal
         }
 
         // allocate FPGA arrays
-        inaccel::allocator<uint64_t> alloc_uint64_t;
         size_t input_size = coeff_count * decomp_modulus_size;
         size_t output_size = coeff_count * decomp_modulus_size * key_component_count;
-        uint64_t *fpga_input = alloc_uint64_t.allocate(chunk_size * input_size);
-        uint64_t *fpga_output = alloc_uint64_t.allocate(chunk_size * output_size);
+        thread_local inaccel::vector<uint64_t> fpga_input, fpga_output;
+        fpga_input.resize(chunk_size * input_size);
+        fpga_output.resize(chunk_size * output_size);
 
         for (size_t i = 0; i < chunk_size; i++)
         {
             const uint64_t *t_target_iter_ptr = &(*target_iter[i])[0];
 
-            memcpy(fpga_input + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
+            memcpy(fpga_input.data() + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
         }
 
-        const inaccel::vector<uint64_t> root_of_unity_powers = context_.root_of_unity_powers();
+        const inaccel::vector<uint64_t> &root_of_unity_powers = context_.root_of_unity_powers();
 
         inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
         keyswitch.arg(chunk_size)
@@ -3072,30 +3072,36 @@ namespace seal
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
             .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
-            .arg<uint64_t>(root_of_unity_powers.begin()                   , root_of_unity_powers.begin() +  6 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() +  6 * coeff_count, root_of_unity_powers.begin() +  7 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() +  7 * coeff_count, root_of_unity_powers.begin() +  8 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() +  8 * coeff_count, root_of_unity_powers.begin() +  9 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() +  9 * coeff_count, root_of_unity_powers.begin() + 10 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() + 10 * coeff_count, root_of_unity_powers.begin() + 11 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() + 11 * coeff_count, root_of_unity_powers.begin() + 12 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() + 12 * coeff_count, root_of_unity_powers.begin() + 13 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() + 13 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
-            .arg<uint64_t>(root_of_unity_powers.begin() +  7 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
-            .arg_array<uint64_t>(fpga_input, fpga_input + chunk_size * input_size)
-            .arg_array<uint64_t>(fpga_output, fpga_output + chunk_size * output_size);
+            .arg<uint64_t>(root_of_unity_powers.begin(), root_of_unity_powers.begin() + 6 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 6 * coeff_count, root_of_unity_powers.begin() + 7 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 7 * coeff_count, root_of_unity_powers.begin() + 8 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 8 * coeff_count, root_of_unity_powers.begin() + 9 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 9 * coeff_count, root_of_unity_powers.begin() + 10 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 10 * coeff_count, root_of_unity_powers.begin() + 11 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 11 * coeff_count, root_of_unity_powers.begin() + 12 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 12 * coeff_count, root_of_unity_powers.begin() + 13 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 13 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
+            .arg<uint64_t>(
+                root_of_unity_powers.begin() + 7 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
+            .arg(fpga_input)
+            .arg(fpga_output);
 
         inaccel::submit(keyswitch).get();
 
         for (size_t i = 0; i < chunk_size; i++)
         {
             keyswitch::readOutput(
-                coeff_count, decomp_modulus_size, key_modulus.data(), fpga_output + i * output_size,
+                coeff_count, decomp_modulus_size, key_modulus.data(), fpga_output.data() + i * output_size,
                 encrypted[i]->data(), 1);
         }
-
-        alloc_uint64_t.deallocate(fpga_output, chunk_size * output_size);
-        alloc_uint64_t.deallocate(fpga_input, chunk_size * input_size);
     }
 #endif
 } // namespace seal
