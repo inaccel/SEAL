@@ -3061,7 +3061,21 @@ namespace seal
             memcpy(fpga_input.data() + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
         }
 
-        const inaccel::vector<uint64_t> &root_of_unity_powers = context_.root_of_unity_powers();
+        const thread_local inaccel::vector<uint64_t> root_of_unity_powers = context_.root_of_unity_powers();
+
+        thread_local inaccel::vector<DyadmultKeys1_t> key1;
+        thread_local inaccel::vector<DyadmultKeys2_t> key2;
+        thread_local inaccel::vector<DyadmultKeys3_t> key3;
+
+        const FPGAPublicKey &fpga_keys = kswitch_keys.fpga_data()[kswitch_keys_index];
+
+        key1.resize(fpga_keys.key1.size());
+        key2.resize(fpga_keys.key2.size());
+        key3.resize(fpga_keys.key3.size());
+
+        memcpy(key1.data(), fpga_keys.key1.data(), fpga_keys.key1.size() * sizeof(DyadmultKeys1_t));
+        memcpy(key2.data(), fpga_keys.key2.data(), fpga_keys.key2.size() * sizeof(DyadmultKeys2_t));
+        memcpy(key3.data(), fpga_keys.key3.data(), fpga_keys.key3.size() * sizeof(DyadmultKeys3_t));
 
         inaccel::request keyswitch("hexl.experimental.seal.KeySwitch");
         keyswitch.arg(chunk_size)
@@ -3069,9 +3083,9 @@ namespace seal
             .arg(decomp_modulus_size)
             .arg(context_.modulus_meta())
             .arg(context_.invn())
-            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key1)
-            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key2)
-            .arg(kswitch_keys.fpga_data()[kswitch_keys_index].key3)
+            .arg(key1)
+            .arg(key2)
+            .arg(key3)
             .arg<uint64_t>(root_of_unity_powers.begin(), root_of_unity_powers.begin() + 6 * coeff_count)
             .arg<uint64_t>(
                 root_of_unity_powers.begin() + 6 * coeff_count, root_of_unity_powers.begin() + 7 * coeff_count)
