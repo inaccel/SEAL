@@ -3090,20 +3090,6 @@ namespace seal
             .arg<uint64_t>(
                 root_of_unity_powers.begin() + 6 * coeff_count, root_of_unity_powers.begin() + 7 * coeff_count)
             .arg<uint64_t>(
-                root_of_unity_powers.begin() + 7 * coeff_count, root_of_unity_powers.begin() + 8 * coeff_count)
-            .arg<uint64_t>(
-                root_of_unity_powers.begin() + 8 * coeff_count, root_of_unity_powers.begin() + 9 * coeff_count)
-            .arg<uint64_t>(
-                root_of_unity_powers.begin() + 9 * coeff_count, root_of_unity_powers.begin() + 10 * coeff_count)
-            .arg<uint64_t>(
-                root_of_unity_powers.begin() + 10 * coeff_count, root_of_unity_powers.begin() + 11 * coeff_count)
-            .arg<uint64_t>(
-                root_of_unity_powers.begin() + 11 * coeff_count, root_of_unity_powers.begin() + 12 * coeff_count)
-            .arg<uint64_t>(
-                root_of_unity_powers.begin() + 12 * coeff_count, root_of_unity_powers.begin() + 13 * coeff_count)
-            .arg<uint64_t>(
-                root_of_unity_powers.begin() + 13 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
-            .arg<uint64_t>(
                 root_of_unity_powers.begin() + 7 * coeff_count, root_of_unity_powers.begin() + 14 * coeff_count)
             .arg(fpga_input)
             .arg(fpga_output);
