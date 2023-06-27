@@ -10,6 +10,10 @@
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
+#ifdef SEAL_USE_INTEL_HEXL
+#include <CL/cl_ext_xilinx.h>
+#include <fstream>
+#endif
 
 using namespace std;
 using namespace seal::util;
@@ -529,15 +533,166 @@ namespace seal
             auto modswitch_factors = this->key_context_data()->rns_tool()->inv_q_last_mod_q();
 
             size_t root_of_unity_powers_size = coeff_count * key_modulus.size() * 2;
-            root_of_unity_powers_.resize(root_of_unity_powers_size);
+            std::vector<uint64_t> root_of_unity_powers(root_of_unity_powers_size + MEM_ALIGN / sizeof(uint64_t));
+            uint64_t *root_of_unity_powers_offset = (uint64_t *) (((uintptr_t) root_of_unity_powers.data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
 
             keyswitch::loadTwiddleFactors(
-                coeff_count, key_modulus.size(), key_modulus.data(), root_of_unity_powers_.data());
+                coeff_count, key_modulus.size(), key_modulus.data(), root_of_unity_powers_offset);
 
             keyswitch::buildModulusMeta(key_modulus.size(), key_modulus.data(), modswitch_factors, &modulus_meta_);
 
             keyswitch::buildInvnMeta(
-                coeff_count, key_modulus.size(), key_modulus.data(), root_of_unity_powers_.data(), &invn_);
+                coeff_count, key_modulus.size(), key_modulus.data(), root_of_unity_powers_offset, &invn_);
+
+            int index = 0;
+            platform_id = inclGetPlatformID("Xilinx");
+            if (platform_id == nullptr) {
+                    std::cout << "no device found\n";
+                    exit(1);
+            }
+
+            device_id = inclGetDeviceID(platform_id, index);
+            context = inclCreateContext(device_id);
+
+            std::string bitstream_filename = "/usr/share/keyswitch_hw.xclbin";
+            std::ifstream bin_file(bitstream_filename.c_str(), std::ifstream::binary);
+            if(bin_file.fail()){
+                std::cout << "Binary: " << bitstream_filename << " doesn't exist!\n";
+                exit(1);
+            }
+            bin_file.seekg(0, bin_file.end);
+            auto nb = bin_file.tellg();
+            bin_file.seekg(0, bin_file.beg);
+            std::vector<unsigned char> buf;
+            buf.resize(nb);
+            bin_file.read(reinterpret_cast<char*>(buf.data()), nb);
+
+            program = inclCreateProgramWithBinary(context, device_id, buf.size(), buf.data());
+            if (program == NULL) {
+                std::cout << "could not program device\n";
+                exit(1);
+            }
+
+            if (inclBuildProgram(program)) {
+                std::cout << "could not program device (build)\n";
+                exit(1);
+            }
+
+            broadcast_keys_kernel_ = inclCreateKernel(program, "broadcast_keys");
+            if (broadcast_keys_kernel_ == NULL) {
+                std::cout << "could not create broadcast_keys kernel\n";
+                exit(1);
+            }
+            intt1_push_kernel_ = inclCreateKernel(program, "intt1_push");
+            if (intt1_push_kernel_ == NULL) {
+                std::cout << "could not create intt1_push kernel\n";
+                exit(1);
+            }
+            intt1_twiddles_kernel_ = inclCreateKernel(program, "dispatch_intt1_twiddles");
+            if (intt1_twiddles_kernel_ == NULL) {
+                std::cout << "could not create dispatch_intt1_twiddles kernel\n";
+                exit(1);
+            }
+            intt2_twiddles_kernel_ = inclCreateKernel(program, "dispatch_intt2_twiddles");
+            if (intt2_twiddles_kernel_ == NULL) {
+                std::cout << "could not create dispatch_intt2_twiddles kernel\n";
+                exit(1);
+            }
+            mod_invn_kernel_ = inclCreateKernel(program, "dispatch_mod_invn");
+            if (mod_invn_kernel_ == NULL) {
+                std::cout << "could not create dispatch_mod_invn kernel\n";
+                exit(1);
+            }
+            ntt1_twiddles_kernel_ = inclCreateKernel(program, "dispatch_ntt1_twiddles");
+            if (ntt1_twiddles_kernel_ == NULL) {
+                std::cout << "could not create dispatch_ntt1_twiddles kernel\n";
+                exit(1);
+            }
+            ntt2_twiddles_kernel_ = inclCreateKernel(program, "dispatch_ntt2_twiddles");
+            if (ntt2_twiddles_kernel_ == NULL) {
+                std::cout << "could not create dispatch_ntt2_twiddles kernel\n";
+                exit(1);
+            }
+            store_kernel_ = inclCreateKernel(program, "store");
+            if (store_kernel_ == NULL) {
+                std::cout << "could not create store kernel\n";
+                exit(1);
+            }
+
+            cl_mem_ext_ptr_t intt1_tw_ext = {0}, intt2_tw_ext = {0}, ntt_tw_ext = {0};
+            intt1_tw_ext.flags = 2 | XCL_MEM_TOPOLOGY;
+            intt1_tw_ext.obj = root_of_unity_powers_offset;
+            intt2_tw_ext.flags = 1 | XCL_MEM_TOPOLOGY;
+            intt2_tw_ext.obj = root_of_unity_powers_offset + 6 * coeff_count;
+            ntt_tw_ext.flags = 3 | XCL_MEM_TOPOLOGY;
+            ntt_tw_ext.obj = root_of_unity_powers_offset + 7 * coeff_count;
+
+            bk_cq_ = inclCreateCommandQueue(context, device_id);
+            if (bk_cq_ == NULL) {
+                std::cout << "could not create broadcast_keys command_queue\n";
+                exit(1);
+            }
+            intt1_cq_ = inclCreateCommandQueue(context, device_id);
+            if (intt1_cq_ == NULL) {
+                std::cout << "could not create intt1_push command_queue\n";
+                exit(1);
+            }
+            intt1_tw_cq_ = inclCreateCommandQueue(context, device_id);
+            if (intt1_tw_cq_ == NULL) {
+                std::cout << "could not create intt1 twiddles command_queue\n";
+                exit(1);
+            }
+            intt2_tw_cq_ = inclCreateCommandQueue(context, device_id);
+            if (intt2_tw_cq_ == NULL) {
+                std::cout << "could not create intt2 twiddles command_queue\n";
+                exit(1);
+            }
+            mod_invn_cq_ = inclCreateCommandQueue(context, device_id);
+            if (mod_invn_cq_ == NULL) {
+                std::cout << "could not create mod & invn command_queue\n";
+                exit(1);
+            }
+            ntt1_tw_cq_ = inclCreateCommandQueue(context, device_id);
+            if (ntt1_tw_cq_ == NULL) {
+                std::cout << "could not create ntt1 twiddles command_queue\n";
+                exit(1);
+            }
+            ntt2_tw_cq_ = inclCreateCommandQueue(context, device_id);
+            if (ntt2_tw_cq_ == NULL) {
+                std::cout << "could not create ntt2 twiddles command_queue\n";
+                exit(1);
+            }
+            store_cq_ = inclCreateCommandQueue(context, device_id);
+            if (store_cq_ == NULL) {
+                std::cout << "could not create stor command_queue\n";
+                exit(1);
+            }
+            cq_ = clCreateCommandQueue(context, device_id, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, NULL);
+            in_cq_ = clCreateCommandQueue(context, device_id, 0, NULL);
+            out_cq_ = clCreateCommandQueue(context, device_id, 0, NULL);
+
+            intt1_twiddles_ = inclCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, 6 * coeff_count * sizeof(uint64_t), &intt1_tw_ext);
+            if (!intt1_twiddles_) {
+                std::cout << "could not create intt1_twiddles buffer\n";
+                exit(1);
+            }
+            intt2_twiddles_ = inclCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, coeff_count * sizeof(uint64_t), &intt2_tw_ext);
+            if (!intt2_twiddles_) {
+                std::cout << "could not create intt2_twiddles buffer\n";
+                exit(1);
+            }
+            ntt_twiddles_ = inclCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, 7 * coeff_count * sizeof(uint64_t), &ntt_tw_ext);
+            if (!ntt_twiddles_) {
+                std::cout << "could not create ntt_twiddles_ buffer\n";
+                exit(1);
+            }
+
+            inclEnqueueMigrateMemObject(intt1_tw_cq_, intt1_twiddles_, 0);
+            inclEnqueueMigrateMemObject(intt2_tw_cq_, intt2_twiddles_, 0);
+            inclEnqueueMigrateMemObject(ntt1_tw_cq_, ntt_twiddles_, 0);
+            inclFinish(intt1_tw_cq_);
+            inclFinish(intt2_tw_cq_);
+            inclFinish(ntt1_tw_cq_);
         }
 #endif
     }

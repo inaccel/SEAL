@@ -382,10 +382,6 @@ install(
 
 # Build only a static library
 if(NOT BUILD_SHARED_LIBS)
-    add_library(coral_api STATIC IMPORTED GLOBAL)
-    find_file(CORAL_API libcoral-api.a /usr/lib /usr/lib64)
-    set_target_properties(coral_api PROPERTIES IMPORTED_LOCATION ${CORAL_API})
-
     add_library(seal STATIC ${SEAL_SOURCE_FILES})
     seal_set_version_filename(seal)
     seal_set_language(seal)
@@ -425,6 +421,7 @@ if(NOT BUILD_SHARED_LIBS)
     endif()
 
     if(SEAL_USE_INTEL_HEXL)
+        target_include_directories(seal PUBLIC /opt/xilinx/xrt/include/)
         if(SEAL_BUILD_DEPS)
             add_dependencies(seal HEXL::hexl)
             target_include_directories(seal PRIVATE
@@ -435,10 +432,8 @@ if(NOT BUILD_SHARED_LIBS)
                 target_link_libraries(seal INTERFACE ${HEXL_INTERFACE_LINK_OPTIONS})
             endif()
             seal_combine_archives(seal HEXL::hexl)
-            seal_combine_archives(seal coral_api)
         else()
             target_link_libraries(seal PUBLIC HEXL::hexl)
-            target_link_libraries(seal PUBLIC coral_api)
         endif()
     endif()
 
@@ -479,8 +474,9 @@ else()
     endif()
 
     if(SEAL_USE_INTEL_HEXL)
+        target_include_directories(seal_shared PUBLIC /opt/xilinx/xrt/include/)
         target_link_libraries(seal_shared PRIVATE HEXL::hexl)
-        target_link_libraries(seal_shared PRIVATE coral-api)
+        target_link_libraries(seal_shared PRIVATE xilinxopencl)
         target_compile_options(seal_shared PRIVATE $<TARGET_PROPERTY:HEXL::hexl,INTERFACE_COMPILE_OPTIONS>)
         get_target_property(HEXL_INTERFACE_LINK_OPTIONS HEXL::hexl INTERFACE_LINK_OPTIONS)
         if (NOT "${HEXL_INTERFACE_LINK_OPTIONS}" STREQUAL "HEXL_INTERFACE_LINK_OPTIONS-NOTFOUND")

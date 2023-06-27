@@ -12,14 +12,12 @@
 #include <vector>
 
 #ifdef SEAL_USE_INTEL_HEXL
-#include <inaccel/shm>
-
 typedef struct
 {
-    inaccel::vector<DyadmultKeys1_t> key1;
-    inaccel::vector<DyadmultKeys2_t> key2;
-    inaccel::vector<DyadmultKeys3_t> key3;
-} FPGAPublicKey;
+    cl_mem key1;
+    cl_mem key2;
+    cl_mem key3;
+} OpenCLPublicKey;
 #endif
 
 namespace seal
@@ -97,19 +95,19 @@ namespace seal
 
 #ifdef SEAL_USE_INTEL_HEXL
         /**
-        Returns a reference to the KSwitchKeys FPGA data.
+        Returns a reference to the KSwitchKeys OpenCL data.
         */
-        SEAL_NODISCARD inline auto &fpga_data() noexcept
+        SEAL_NODISCARD inline auto &opencl_data() noexcept
         {
-            return fpga_keys_;
+            return opencl_keys_;
         }
 
         /**
         Returns a const reference to the KSwitchKeys FPGA data.
         */
-        SEAL_NODISCARD inline auto &fpga_data() const noexcept
+        SEAL_NODISCARD inline auto &opencl_data() const noexcept
         {
-            return fpga_keys_;
+            return opencl_keys_;
         }
 
         /**
@@ -118,13 +116,13 @@ namespace seal
         @param[in] index The index of the keyswitching key
         @throws std::invalid_argument if the key at the given index does not exist
         */
-        SEAL_NODISCARD inline auto &fpga_data(std::size_t index)
+        SEAL_NODISCARD inline auto &opencl_data(std::size_t index)
         {
-            if (index >= fpga_keys_.size())
+            if (index >= opencl_keys_.size())
             {
                 throw std::invalid_argument("keyswitching FPGA key does not exist");
             }
-            return fpga_keys_[index];
+            return opencl_keys_[index];
         }
 
         /**
@@ -133,13 +131,13 @@ namespace seal
         @param[in] index The index of the keyswitching key
         @throws std::invalid_argument if the key at the given index does not exist
         */
-        SEAL_NODISCARD inline const auto &fpga_data(std::size_t index) const
+        SEAL_NODISCARD inline const auto &opencl_data(std::size_t index) const
         {
-            if (index >= fpga_keys_.size())
+            if (index >= opencl_keys_.size())
             {
                 throw std::invalid_argument("keyswitching FPGA key does not exist");
             }
-            return fpga_keys_[index];
+            return opencl_keys_[index];
         }
 #endif
 
@@ -399,7 +397,7 @@ namespace seal
         std::vector<std::vector<PublicKey>> keys_{};
 
 #ifdef SEAL_USE_INTEL_HEXL
-        std::vector<FPGAPublicKey> fpga_keys_{};
+        std::vector<OpenCLPublicKey> opencl_keys_{};
 #endif
     };
 } // namespace seal

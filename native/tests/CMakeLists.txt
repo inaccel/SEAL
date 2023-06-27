@@ -60,7 +60,6 @@ if(SEAL_BUILD_TESTS)
     else()
         message(FATAL_ERROR "Cannot find target SEAL::seal or SEAL::seal_shared")
     endif()
-    target_link_libraries(sealtest PUBLIC dl)
 
     # In Debug mode, enable AddressSanitizer (and LeakSanitizer) on Unix-like platforms.
     if(SEAL_DEBUG AND UNIX)

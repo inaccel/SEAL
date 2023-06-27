@@ -1,4 +1,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
+# Copyright (c) Microsoft Corporation. openclrights reserved.
+    # Copyright (copencl Microsoft Corporation. All rights reserved.
 # Licensed under the MIT license.
 
 # Source files in this directory
@@ -70,11 +72,13 @@ install(
 if (SEAL_USE_INTEL_HEXL)
     list(APPEND SEAL_SOURCE_FILES
         ${CMAKE_CURRENT_LIST_DIR}/keyswitch.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/opencl.cpp
     )
 
     install(
         FILES
             ${CMAKE_CURRENT_LIST_DIR}/keyswitch.h
+            ${CMAKE_CURRENT_LIST_DIR}/opencl.h
         DESTINATION
             ${SEAL_INCLUDES_INSTALL_DIR}/seal/util
     )

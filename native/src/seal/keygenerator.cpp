@@ -162,6 +162,58 @@ namespace seal
         return relin_keys;
     }
 
+#ifdef SEAL_USE_INTEL_HEXL
+    void allocate_ocl_keys(size_t coeff_count, size_t decomp_mod_count, size_t coeff_modulus_size, std::vector<seal::PublicKey> &keys, OpenCLPublicKey &opencl_key, cl_context context, cl_command_queue cq) {
+        std::vector<const uint64_t *> kswitch_keys;
+        for (auto &key : keys)
+        {
+            kswitch_keys.push_back(key.data().data());
+        }
+        std::vector<DyadmultKeys1_t> keys1(coeff_count * decomp_mod_count + MEM_ALIGN / sizeof(DyadmultKeys1_t));
+        std::vector<DyadmultKeys2_t> keys2(coeff_count * decomp_mod_count + MEM_ALIGN / sizeof(DyadmultKeys2_t));
+        std::vector<DyadmultKeys3_t> keys3(coeff_count * decomp_mod_count + MEM_ALIGN / sizeof(DyadmultKeys3_t));
+
+        DyadmultKeys1_t *keys1_offset = (DyadmultKeys1_t *) (((uintptr_t) keys1.data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
+        DyadmultKeys2_t *keys2_offset = (DyadmultKeys2_t *) (((uintptr_t) keys2.data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
+        DyadmultKeys3_t *keys3_offset = (DyadmultKeys3_t *) (((uintptr_t) keys3.data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
+
+
+        keyswitch::loadKeys(
+            coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(), keys1_offset,
+            keys2_offset, keys3_offset);
+
+        size_t key_size = coeff_count * decomp_mod_count;
+        cl_mem_ext_ptr_t key1_ext = {0}, key2_ext = {0}, key3_ext = {0};
+        key1_ext.flags = 0 | XCL_MEM_TOPOLOGY;
+        key1_ext.obj = keys1_offset;
+        key2_ext.flags = 0 | XCL_MEM_TOPOLOGY;
+        key2_ext.obj = keys2_offset;
+        key3_ext.flags = 1 | XCL_MEM_TOPOLOGY;
+        key3_ext.obj = keys3_offset;
+
+        opencl_key.key1 = inclCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, key_size * sizeof(DyadmultKeys1_t), &key1_ext);
+        if (!opencl_key.key1) {
+            std::cout << "could not create opencl_key1 buffer\n";
+            exit(1);
+        }
+        opencl_key.key2 = inclCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, key_size * sizeof(DyadmultKeys2_t), &key2_ext);
+        if (!opencl_key.key2) {
+            std::cout << "could not create opencl_key2 buffer\n";
+            exit(1);
+        }
+        opencl_key.key3 = inclCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, key_size * sizeof(DyadmultKeys3_t), &key3_ext);
+        if (!opencl_key.key3) {
+            std::cout << "could not create opencl_key3 buffer\n";
+            exit(1);
+        }
+
+        inclEnqueueMigrateMemObject(cq, opencl_key.key1, 0);
+        inclEnqueueMigrateMemObject(cq, opencl_key.key2, 0);
+        inclEnqueueMigrateMemObject(cq, opencl_key.key3, 0);
+        inclFinish(cq);
+    }
+#endif
+
     GaloisKeys KeyGenerator::create_galois_keys(const vector<uint32_t> &galois_elts, bool save_seed)
     {
         // Check to see if secret key and public key have been generated
@@ -193,7 +245,7 @@ namespace seal
         // The max number of keys is equal to number of coefficients
         galois_keys.data().resize(coeff_count);
 #ifdef SEAL_USE_INTEL_HEXL
-        galois_keys.fpga_data().resize(coeff_count);
+        galois_keys.opencl_data().resize(coeff_count);
 #endif
 
         for (auto galois_elt : galois_elts)
@@ -222,18 +274,7 @@ namespace seal
             // Create Galois keys.
             generate_one_kswitch_key(rotated_secret_key, galois_keys.data()[index], save_seed);
 #ifdef SEAL_USE_INTEL_HEXL
-            std::vector<const uint64_t *> kswitch_keys;
-            for (auto &key : galois_keys.data()[index])
-            {
-                kswitch_keys.push_back(key.data().data());
-            }
-            FPGAPublicKey &fpga_key = galois_keys.fpga_data()[index];
-            fpga_key.key1.resize(coeff_count * decomp_mod_count);
-            fpga_key.key2.resize(coeff_count * decomp_mod_count);
-            fpga_key.key3.resize(coeff_count * decomp_mod_count);
-            keyswitch::loadKeys(
-                coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(), fpga_key.key1.data(),
-                fpga_key.key2.data(), fpga_key.key3.data());
+            allocate_ocl_keys(coeff_count, decomp_mod_count, coeff_modulus_size, galois_keys.data()[index], galois_keys.opencl_data()[index], context_.opencl_context(), context_.bk_cq());
 #endif
         }
 
@@ -384,26 +425,15 @@ namespace seal
 #endif
         destination.data().resize(num_keys);
 #ifdef SEAL_USE_INTEL_HEXL
-        destination.fpga_data().resize(num_keys);
-        SEAL_ITERATE(iter(new_keys, destination.data(), destination.fpga_data()), num_keys, [&](auto I) {
+        destination.opencl_data().resize(num_keys);
+
+        SEAL_ITERATE(iter(new_keys, destination.data(), destination.opencl_data()), num_keys, [&](auto I) {
 #else
         SEAL_ITERATE(iter(new_keys, destination.data()), num_keys, [&](auto I) {
 #endif
             this->generate_one_kswitch_key(get<0>(I), get<1>(I), save_seed);
 #ifdef SEAL_USE_INTEL_HEXL
-            std::vector<const uint64_t *> kswitch_keys;
-            for (auto &key : get<1>(I))
-            {
-                kswitch_keys.push_back(key.data().data());
-            }
-            FPGAPublicKey &fpga_key = get<2>(I);
-            fpga_key.key1.resize(coeff_count * decomp_mod_count);
-            fpga_key.key2.resize(coeff_count * decomp_mod_count);
-            fpga_key.key3.resize(coeff_count * decomp_mod_count);
-
-            keyswitch::loadKeys(
-                coeff_count, decomp_mod_count, coeff_modulus_size, kswitch_keys.data(), fpga_key.key1.data(),
-                fpga_key.key2.data(), fpga_key.key3.data());
+            allocate_ocl_keys(coeff_count, decomp_mod_count, coeff_modulus_size, get<1>(I), get<2>(I), context_.opencl_context(), context_.bk_cq());
 #endif
         });
     }
