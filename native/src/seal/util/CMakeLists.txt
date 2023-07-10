@@ -72,13 +72,13 @@ install(
 if (SEAL_USE_INTEL_HEXL)
     list(APPEND SEAL_SOURCE_FILES
         ${CMAKE_CURRENT_LIST_DIR}/keyswitch.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/opencl.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/xcl2.cpp
     )
 
     install(
         FILES
             ${CMAKE_CURRENT_LIST_DIR}/keyswitch.h
-            ${CMAKE_CURRENT_LIST_DIR}/opencl.h
+            ${CMAKE_CURRENT_LIST_DIR}/xcl2.hpp
         DESTINATION
             ${SEAL_INCLUDES_INSTALL_DIR}/seal/util
     )

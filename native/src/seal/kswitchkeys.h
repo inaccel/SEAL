@@ -5,20 +5,14 @@
 
 #include "seal/encryptionparams.h"
 #include "seal/memorymanager.h"
+#ifdef SEAL_USE_INTEL_HEXL
+#include "seal/oclpublickey.h"
+#endif
 #include "seal/publickey.h"
 #include "seal/valcheck.h"
 #include "seal/version.h"
 #include <iostream>
 #include <vector>
-
-#ifdef SEAL_USE_INTEL_HEXL
-typedef struct
-{
-    cl_mem key1;
-    cl_mem key2;
-    cl_mem key3;
-} OpenCLPublicKey;
-#endif
 
 namespace seal
 {
@@ -97,17 +91,17 @@ namespace seal
         /**
         Returns a reference to the KSwitchKeys OpenCL data.
         */
-        SEAL_NODISCARD inline auto &opencl_data() noexcept
+        SEAL_NODISCARD inline auto &ocl_data() noexcept
         {
-            return opencl_keys_;
+            return ocl_keys_;
         }
 
         /**
         Returns a const reference to the KSwitchKeys FPGA data.
         */
-        SEAL_NODISCARD inline auto &opencl_data() const noexcept
+        SEAL_NODISCARD inline auto &ocl_data() const noexcept
         {
-            return opencl_keys_;
+            return ocl_keys_;
         }
 
         /**
@@ -116,13 +110,13 @@ namespace seal
         @param[in] index The index of the keyswitching key
         @throws std::invalid_argument if the key at the given index does not exist
         */
-        SEAL_NODISCARD inline auto &opencl_data(std::size_t index)
+        SEAL_NODISCARD inline auto &ocl_data(std::size_t index)
         {
-            if (index >= opencl_keys_.size())
+            if (index >= ocl_keys_.size())
             {
                 throw std::invalid_argument("keyswitching FPGA key does not exist");
             }
-            return opencl_keys_[index];
+            return ocl_keys_[index];
         }
 
         /**
@@ -131,13 +125,13 @@ namespace seal
         @param[in] index The index of the keyswitching key
         @throws std::invalid_argument if the key at the given index does not exist
         */
-        SEAL_NODISCARD inline const auto &opencl_data(std::size_t index) const
+        SEAL_NODISCARD inline const auto &ocl_data(std::size_t index) const
         {
-            if (index >= opencl_keys_.size())
+            if (index >= ocl_keys_.size())
             {
                 throw std::invalid_argument("keyswitching FPGA key does not exist");
             }
-            return opencl_keys_[index];
+            return ocl_keys_[index];
         }
 #endif
 
@@ -397,7 +391,7 @@ namespace seal
         std::vector<std::vector<PublicKey>> keys_{};
 
 #ifdef SEAL_USE_INTEL_HEXL
-        std::vector<OpenCLPublicKey> opencl_keys_{};
+        std::vector<OCLPublicKey> ocl_keys_{};
 #endif
     };
 } // namespace seal

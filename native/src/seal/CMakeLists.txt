@@ -53,5 +53,14 @@ install(
         ${SEAL_INCLUDES_INSTALL_DIR}/seal
 )
 
+if (SEAL_USE_INTEL_HEXL)
+    install(
+        FILES
+            ${CMAKE_CURRENT_LIST_DIR}/oclpublickey.h
+        DESTINATION
+            ${SEAL_INCLUDES_INSTALL_DIR}/seal
+    )
+endif()
+
 add_subdirectory(util)
 set(SEAL_SOURCE_FILES ${SEAL_SOURCE_FILES} PARENT_SCOPE)

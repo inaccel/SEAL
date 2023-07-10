@@ -37,13 +37,13 @@ namespace seal
         }
 
 #ifdef SEAL_USE_INTEL_HEXL
-        opencl_keys_.clear();
-        opencl_keys_.reserve(assign.opencl_keys_.size());
-        for (size_t i = 0; i < assign.opencl_keys_.size(); i++)
+        ocl_keys_.clear();
+        ocl_keys_.reserve(assign.ocl_keys_.size());
+        for (size_t i = 0; i < assign.ocl_keys_.size(); i++)
         {
-            opencl_keys_[i].key1 = assign.opencl_keys_[i].key1;
-            opencl_keys_[i].key2 = assign.opencl_keys_[i].key2;
-            opencl_keys_[i].key3 = assign.opencl_keys_[i].key3;
+            ocl_keys_[i].key1 = assign.ocl_keys_[i].key1;
+            ocl_keys_[i].key2 = assign.ocl_keys_[i].key2;
+            ocl_keys_[i].key3 = assign.ocl_keys_[i].key3;
         }
 #endif
 

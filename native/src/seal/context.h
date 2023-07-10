@@ -15,7 +15,9 @@
 
 #ifdef SEAL_USE_INTEL_HEXL
 #include "seal/util/keyswitch.h"
-#include "seal/util/opencl.h"
+#include "seal/util/xcl2.hpp"
+
+#define HBM(n) n | XCL_MEM_TOPOLOGY
 #endif
 
 namespace seal
@@ -647,109 +649,65 @@ namespace seal
         {
             return invn_;
         }
-        SEAL_NODISCARD inline const cl_context opencl_context() const noexcept
+        SEAL_NODISCARD inline const cl::Context &ocl_context() const noexcept
         {
-            return context;
+            return context_;
         }
-        SEAL_NODISCARD inline const cl_command_queue bk_cq() const noexcept
-        {
-            return bk_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue intt1_cq() const noexcept
-        {
-            return intt1_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue intt1_tw_cq() const noexcept
-        {
-            return intt1_tw_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue intt2_tw_cq() const noexcept
-        {
-            return intt2_tw_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue mod_invn_cq() const noexcept
-        {
-            return mod_invn_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue ntt1_tw_cq() const noexcept
-        {
-            return ntt1_tw_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue ntt2_tw_cq() const noexcept
-        {
-            return ntt2_tw_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue store_cq() const noexcept
-        {
-            return store_cq_;
-        }
-        SEAL_NODISCARD inline const cl_command_queue in_cq() const noexcept
+        SEAL_NODISCARD inline const cl::CommandQueue &in_cq() const noexcept
         {
             return in_cq_;
         }
-        SEAL_NODISCARD inline const cl_command_queue out_cq() const noexcept
+        SEAL_NODISCARD inline const cl::CommandQueue &out_cq() const noexcept
         {
             return out_cq_;
         }
-        SEAL_NODISCARD inline const cl_command_queue cq() const noexcept
+        SEAL_NODISCARD inline const cl::CommandQueue &cq() const noexcept
         {
             return cq_;
         }
-        SEAL_NODISCARD inline const cl_mem intt1_twiddles() const noexcept
+        SEAL_NODISCARD inline const cl::Buffer &intt1_twiddles() const noexcept
         {
             return intt1_twiddles_;
         }
-        SEAL_NODISCARD inline const cl_mem intt2_twiddles() const noexcept
+        SEAL_NODISCARD inline const cl::Buffer &intt2_twiddles() const noexcept
         {
             return intt2_twiddles_;
         }
-        SEAL_NODISCARD inline const cl_mem ntt_twiddles() const noexcept
+        SEAL_NODISCARD inline const cl::Buffer &ntt_twiddles() const noexcept
         {
             return ntt_twiddles_;
         }
-        SEAL_NODISCARD inline const cl_kernel broadcast_keys_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &broadcast_keys_krnl() const noexcept
         {
-            return broadcast_keys_kernel_;
+            return broadcast_keys_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel intt1_push_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &intt1_push_krnl() const noexcept
         {
-            return intt1_push_kernel_;
+            return intt1_push_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel intt1_twiddles_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &intt1_twiddles_krnl() const noexcept
         {
-            return intt1_twiddles_kernel_;
+            return intt1_twiddles_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel intt2_twiddles_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &intt2_twiddles_krnl() const noexcept
         {
-            return intt2_twiddles_kernel_;
+            return intt2_twiddles_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel mod_invn_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &mod_invn_krnl() const noexcept
         {
-            return mod_invn_kernel_;
+            return mod_invn_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel ntt1_twiddles_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &ntt1_twiddles_krnl() const noexcept
         {
-            return ntt1_twiddles_kernel_;
+            return ntt1_twiddles_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel ntt2_twiddles_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &ntt2_twiddles_krnl() const noexcept
         {
-            return ntt2_twiddles_kernel_;
+            return ntt2_twiddles_krnl_;
         }
-        SEAL_NODISCARD inline const cl_kernel store_kernel() const noexcept
+        SEAL_NODISCARD inline const cl::Kernel &store_krnl() const noexcept
         {
-            return store_kernel_;
-        }
-        SEAL_NODISCARD inline const cl_program ocl_program() const noexcept
-        {
-            return program;
-        }
-        SEAL_NODISCARD inline const cl_context ocl_context() const noexcept
-        {
-            return context;
-        }
-        SEAL_NODISCARD inline const cl_device_id ocl_device_id() const noexcept
-        {
-            return device_id;
+            return store_krnl_;
         }
 #endif
 
@@ -801,14 +759,11 @@ namespace seal
 #ifdef SEAL_USE_INTEL_HEXL
         moduli_t modulus_meta_ = {}, invn_ = {};
 
-        cl_platform_id platform_id;
-        cl_device_id device_id;
-        cl_context context;
-        cl_program program;
-        cl_kernel broadcast_keys_kernel_, intt1_push_kernel_, intt1_twiddles_kernel_, intt2_twiddles_kernel_, mod_invn_kernel_, ntt1_twiddles_kernel_, ntt2_twiddles_kernel_, store_kernel_;
-        cl_command_queue bk_cq_, intt1_cq_, intt1_tw_cq_, intt2_tw_cq_, mod_invn_cq_, ntt1_tw_cq_, ntt2_tw_cq_, store_cq_;
-        cl_command_queue in_cq_, out_cq_, cq_;
-        cl_mem intt1_twiddles_, intt2_twiddles_, ntt_twiddles_;
+        cl::Buffer intt1_twiddles_, intt2_twiddles_, ntt_twiddles_;
+        cl::CommandQueue in_cq_, out_cq_, cq_;
+        cl::Context context_;
+        cl::Kernel broadcast_keys_krnl_, intt1_push_krnl_, intt1_twiddles_krnl_, intt2_twiddles_krnl_, mod_invn_krnl_,
+            ntt1_twiddles_krnl_, ntt2_twiddles_krnl_, store_krnl_;
 #endif
     };
 } // namespace seal

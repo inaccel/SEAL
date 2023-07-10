@@ -12,8 +12,11 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+
 #ifdef SEAL_USE_INTEL_HEXL
-#define MEM_ALIGN 4096
+#include <condition_variable>
+#define IN_SLOTS 4
+#define OUT_SLOTS 8
 #endif
 
 using namespace std;
@@ -3048,149 +3051,190 @@ namespace seal
         }
 
         // allocate FPGA arrays
-        static std::mutex opencl_mtx, slot_mtx, exec_mtx, read_mtx;
-        static std::vector<std::mutex> write_mtx(3), pipeline_mtx(3);
-        size_t input_size = coeff_count * decomp_modulus_size;
-        size_t output_size = coeff_count * decomp_modulus_size * key_component_count;
-        static std::vector<std::vector<uint64_t>> input(3);
-        static std::vector<std::vector<uint64_t>> output(3);
-        cl_mem_ext_ptr_t input_ext = {0}, output_ext = {0};
+        static std::mutex exec_mtx, read_mtx, input_mtx, output_mtx;
+        static std::condition_variable input_cv, output_cv;
+        static std::vector<bool> input_busy(IN_SLOTS, false), output_busy(OUT_SLOTS, false);
+        unsigned input_slot, output_slot;
 
-        static std::vector<cl_mem> fpga_input(3, nullptr);
-        static std::vector<cl_mem> fpga_output(3, nullptr);
-        static size_t counter= 0;
+        static std::vector<std::vector<uint64_t, aligned_allocator<uint64_t>>> input(IN_SLOTS), output(OUT_SLOTS);
+        static std::vector<cl::Memory> fpga_input, fpga_output;
 
-        const OpenCLPublicKey &fpga_keys = kswitch_keys.opencl_data()[kswitch_keys_index];
-        cl_mem fpga_intt1_twiddles = context_.intt1_twiddles();
-        cl_mem fpga_intt2_twiddles = context_.intt2_twiddles();
-        cl_mem fpga_ntt_twiddles = context_.ntt_twiddles();
+        auto &fpga_keys = kswitch_keys.ocl_data()[kswitch_keys_index];
+        auto &fpga_intt1_twiddles = context_.intt1_twiddles();
+        auto &fpga_intt2_twiddles = context_.intt2_twiddles();
+        auto &fpga_ntt_twiddles = context_.ntt_twiddles();
         moduli_t modulus_meta = context_.modulus_meta();
         moduli_t invn = context_.invn();
 
+        cl_int err;
+        cl::Kernel &broadcast_keys_krnl = const_cast<cl::Kernel &>(context_.broadcast_keys_krnl());
+        cl::Kernel &intt1_push_krnl = const_cast<cl::Kernel &>(context_.intt1_push_krnl());
+        cl::Kernel &intt1_twiddles_krnl = const_cast<cl::Kernel &>(context_.intt1_twiddles_krnl());
+        cl::Kernel &intt2_twiddles_krnl = const_cast<cl::Kernel &>(context_.intt2_twiddles_krnl());
+        cl::Kernel &mod_invn_krnl = const_cast<cl::Kernel &>(context_.mod_invn_krnl());
+        cl::Kernel &ntt1_twiddles_krnl = const_cast<cl::Kernel &>(context_.ntt1_twiddles_krnl());
+        cl::Kernel &ntt2_twiddles_krnl = const_cast<cl::Kernel &>(context_.ntt2_twiddles_krnl());
+        cl::Kernel &store_krnl = const_cast<cl::Kernel &>(context_.store_krnl());
+
         read_mtx.lock();
-        size_t slot = counter++ % 3;
-
-        pipeline_mtx[slot].lock();
-
-        uint64_t *input_offset = (uint64_t *) (((uintptr_t) input[slot].data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
-        uint64_t *output_offset = (uint64_t *) (((uintptr_t) output[slot].data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
-
-        size_t fpga_input_size = 0;
-        if (fpga_input[slot]) {
-            clGetMemObjectInfo(fpga_input[slot], CL_MEM_SIZE, sizeof(size_t), &fpga_input_size, nullptr);
+        std::unique_lock input_lk(input_mtx);
+        while (std::all_of(input_busy.begin(), input_busy.end(), [](bool v) { return v; }))
+        {
+            input_cv.wait(input_lk);
         }
-        if ((chunk_size * input_size * sizeof(uint64_t)) != fpga_input_size) {
-            if (fpga_input_size) {
-                inclReleaseMemObject(fpga_output[slot]);
-                inclReleaseMemObject(fpga_input[slot]);
+        input_lk.unlock();
+
+        for (size_t i = 0; i < input_busy.size(); i++)
+        {
+            if (!input_busy[i])
+            {
+                input_busy[i] = true;
+                input_slot = i;
+                break;
+            }
+        }
+
+        std::unique_lock output_lk(output_mtx);
+        while (std::all_of(output_busy.begin(), output_busy.end(), [](bool v) { return v; }))
+        {
+            output_cv.wait(output_lk);
+        }
+        output_lk.unlock();
+
+        for (size_t i = 0; i < output_busy.size(); i++)
+        {
+            if (!output_busy[i])
+            {
+                output_busy[i] = true;
+                output_slot = i;
+                break;
+            }
+        }
+
+        size_t input_size = coeff_count * decomp_modulus_size;
+        size_t fpga_input_size =
+            (fpga_input.size() >= input_slot + 1) ? fpga_input[input_slot].getInfo<CL_MEM_SIZE>() : 0;
+        if ((chunk_size * input_size * sizeof(uint64_t)) != fpga_input_size)
+        {
+            if (fpga_input.size() < input_slot + 1)
+            {
+                fpga_input.resize(input_slot + 1);
             }
 
-            input[slot].resize(chunk_size * input_size + (MEM_ALIGN / sizeof(uint64_t)));
-            output[slot].resize(chunk_size * output_size + (MEM_ALIGN / sizeof(uint64_t)));
-            input_offset = (uint64_t *) (((uintptr_t) input[slot].data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
-            output_offset = (uint64_t *) (((uintptr_t) output[slot].data() + MEM_ALIGN - 1) & (~(MEM_ALIGN - 1)));
+            input[input_slot].resize(chunk_size * input_size);
 
-            input_ext.flags = (slot + 4) | XCL_MEM_TOPOLOGY;
-            input_ext.obj = input_offset;
-            output_ext.flags = (slot + 8) | XCL_MEM_TOPOLOGY;
-            output_ext.obj = output_offset;
+            cl_mem_ext_ptr_t input_ext = { (unsigned)HBM(input_slot + 4), input[input_slot].data(), nullptr };
 
-            fpga_input[slot] = inclCreateBuffer(context_.opencl_context(), CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, chunk_size * input_size * sizeof(uint64_t), &input_ext);
-            if (!fpga_input[slot]) {
-                std::cout << "could not create fpga_input buffer\n";
-                exit(1);
+            OCL_CHECK(
+                err, fpga_input[input_slot] = cl::Buffer(
+                         context_.ocl_context(), CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR,
+                         chunk_size * input_size * sizeof(uint64_t), &input_ext, &err));
+        }
+
+        size_t output_size = input_size * key_component_count;
+        size_t fpga_output_size =
+            (fpga_output.size() >= output_slot + 1) ? fpga_output[output_slot].getInfo<CL_MEM_SIZE>() : 0;
+        if ((chunk_size * output_size * sizeof(uint64_t)) != fpga_output_size)
+        {
+            if (fpga_output.size() < output_slot + 1)
+            {
+                fpga_output.resize(output_slot + 1);
             }
-            fpga_output[slot] = inclCreateBuffer(context_.opencl_context(), CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR, chunk_size * output_size * sizeof(uint64_t), &output_ext);
-            if (!fpga_output[slot]) {
-                std::cout << "could not create fpga_output buffer\n";
-                exit(1);
-            }
+
+            output[output_slot].resize(chunk_size * output_size);
+
+            cl_mem_ext_ptr_t output_ext = { (unsigned)HBM(output_slot + 8), output[output_slot].data(), nullptr };
+
+            OCL_CHECK(
+                err, fpga_output[output_slot] = cl::Buffer(
+                         context_.ocl_context(), CL_MEM_WRITE_ONLY | CL_MEM_EXT_PTR_XILINX | CL_MEM_USE_HOST_PTR,
+                         chunk_size * output_size * sizeof(uint64_t), &output_ext, &err));
         }
 
         for (size_t i = 0; i < chunk_size; i++)
         {
             const uint64_t *t_target_iter_ptr = &(*target_iter[i])[0];
-            memcpy(input_offset + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
+            memcpy(input[input_slot].data() + i * input_size, t_target_iter_ptr, input_size * sizeof(uint64_t));
         }
 
-        inclEnqueueMigrateMemObject(context_.in_cq(), fpga_input[slot], 0);
-        inclFinish(context_.in_cq());
+        OCL_CHECK(
+            err, err = context_.in_cq().enqueueMigrateMemObjects({ fpga_input[input_slot] }, 0 /* 0 means from host*/));
+        context_.in_cq().finish();
 
         exec_mtx.lock();
         read_mtx.unlock();
 
-        inclSetKernelArg(context_.broadcast_keys_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.broadcast_keys_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.broadcast_keys_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.broadcast_keys_kernel(), 3, sizeof(cl_mem), &fpga_keys.key1);
-        inclSetKernelArg(context_.broadcast_keys_kernel(), 4, sizeof(cl_mem), &fpga_keys.key2);
-        inclSetKernelArg(context_.broadcast_keys_kernel(), 5, sizeof(cl_mem), &fpga_keys.key3);
+        OCL_CHECK(err, err = broadcast_keys_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = broadcast_keys_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = broadcast_keys_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = broadcast_keys_krnl.setArg(3, fpga_keys.key1));
+        OCL_CHECK(err, err = broadcast_keys_krnl.setArg(4, fpga_keys.key2));
+        OCL_CHECK(err, err = broadcast_keys_krnl.setArg(5, fpga_keys.key3));
 
-        inclSetKernelArg(context_.mod_invn_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.mod_invn_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.mod_invn_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.mod_invn_kernel(), 3, sizeof(moduli_t), &modulus_meta);
-        inclSetKernelArg(context_.mod_invn_kernel(), 4, sizeof(moduli_t), &invn);
+        OCL_CHECK(err, err = mod_invn_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = mod_invn_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = mod_invn_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = mod_invn_krnl.setArg(3, modulus_meta));
+        OCL_CHECK(err, err = mod_invn_krnl.setArg(4, invn));
 
-        inclSetKernelArg(context_.intt1_twiddles_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.intt1_twiddles_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.intt1_twiddles_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.intt1_twiddles_kernel(), 3, sizeof(cl_mem), &fpga_intt1_twiddles);
+        OCL_CHECK(err, err = intt1_twiddles_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = intt1_twiddles_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = intt1_twiddles_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = intt1_twiddles_krnl.setArg(3, fpga_intt1_twiddles));
 
-        inclSetKernelArg(context_.intt2_twiddles_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.intt2_twiddles_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.intt2_twiddles_kernel(), 2, sizeof(cl_mem), &fpga_intt2_twiddles);
+        OCL_CHECK(err, err = intt2_twiddles_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = intt2_twiddles_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = intt2_twiddles_krnl.setArg(2, fpga_intt2_twiddles));
 
-        inclSetKernelArg(context_.ntt1_twiddles_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.ntt1_twiddles_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.ntt1_twiddles_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.ntt1_twiddles_kernel(), 3, sizeof(cl_mem), &fpga_ntt_twiddles);
+        OCL_CHECK(err, err = ntt1_twiddles_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = ntt1_twiddles_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = ntt1_twiddles_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = ntt1_twiddles_krnl.setArg(3, fpga_ntt_twiddles));
 
-        inclSetKernelArg(context_.ntt2_twiddles_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.ntt2_twiddles_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.ntt2_twiddles_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.ntt2_twiddles_kernel(), 3, sizeof(cl_mem), &fpga_ntt_twiddles);
+        OCL_CHECK(err, err = ntt2_twiddles_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = ntt2_twiddles_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = ntt2_twiddles_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = ntt2_twiddles_krnl.setArg(3, fpga_ntt_twiddles));
 
-        inclSetKernelArg(context_.intt1_push_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.intt1_push_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.intt1_push_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.intt1_push_kernel(), 3, sizeof(cl_mem), &fpga_input[slot]);
+        OCL_CHECK(err, err = intt1_push_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = intt1_push_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = intt1_push_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = intt1_push_krnl.setArg(3, fpga_input[input_slot]));
 
-        inclSetKernelArg(context_.store_kernel(), 0, sizeof(uint64_t), &chunk_size);
-        inclSetKernelArg(context_.store_kernel(), 1, sizeof(uint64_t), &coeff_count);
-        inclSetKernelArg(context_.store_kernel(), 2, sizeof(uint64_t), &decomp_modulus_size);
-        inclSetKernelArg(context_.store_kernel(), 3, sizeof(cl_mem), &fpga_output[slot]);
+        OCL_CHECK(err, err = store_krnl.setArg(0, chunk_size));
+        OCL_CHECK(err, err = store_krnl.setArg(1, coeff_count));
+        OCL_CHECK(err, err = store_krnl.setArg(2, decomp_modulus_size));
+        OCL_CHECK(err, err = store_krnl.setArg(3, fpga_output[output_slot]));
 
-        inclEnqueueTask(context_.mod_invn_cq(), context_.mod_invn_kernel(), nullptr);
-        inclEnqueueTask(context_.bk_cq(), context_.broadcast_keys_kernel(), nullptr);
-        inclEnqueueTask(context_.intt1_tw_cq(), context_.intt1_twiddles_kernel(), nullptr);
-        inclEnqueueTask(context_.intt2_tw_cq(), context_.intt2_twiddles_kernel(), nullptr);
-        inclEnqueueTask(context_.ntt1_tw_cq(), context_.ntt1_twiddles_kernel(), nullptr);
-        inclEnqueueTask(context_.ntt2_tw_cq(), context_.ntt2_twiddles_kernel(), nullptr);
-        inclEnqueueTask(context_.intt1_cq(), context_.intt1_push_kernel(), nullptr);
-        inclEnqueueTask(context_.store_cq(), context_.store_kernel(), nullptr);
+        OCL_CHECK(err, err = context_.cq().enqueueTask(mod_invn_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(broadcast_keys_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(intt1_twiddles_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(intt2_twiddles_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(ntt1_twiddles_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(ntt2_twiddles_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(intt1_push_krnl));
+        OCL_CHECK(err, err = context_.cq().enqueueTask(store_krnl));
+        context_.cq().finish();
 
-        inclFinish(context_.mod_invn_cq());
-        inclFinish(context_.bk_cq());
-        inclFinish(context_.intt1_tw_cq());
-        inclFinish(context_.intt2_tw_cq());
-        inclFinish(context_.ntt1_tw_cq());
-        inclFinish(context_.ntt2_tw_cq());
-        inclFinish(context_.intt1_cq());
-        inclFinish(context_.store_cq());
+        input_busy[input_slot] = false;
+        input_cv.notify_one();
 
         exec_mtx.unlock();
 
-        inclEnqueueMigrateMemObject(context_.out_cq(), fpga_output[slot], 1);
-        inclFinish(context_.out_cq());
+        OCL_CHECK(
+            err,
+            err = context_.out_cq().enqueueMigrateMemObjects({ fpga_output[output_slot] }, CL_MIGRATE_MEM_OBJECT_HOST));
+        context_.out_cq().finish();
 
         for (size_t i = 0; i < chunk_size; i++)
         {
             keyswitch::readOutput(
-                coeff_count, decomp_modulus_size, key_modulus.data(), output_offset + i * output_size,
+                coeff_count, decomp_modulus_size, key_modulus.data(), output[output_slot].data() + i * output_size,
                 encrypted[i]->data(), 1);
         }
-        pipeline_mtx[slot].unlock();
+
+        output_busy[output_slot] = false;
+        output_cv.notify_one();
     }
 #endif
 } // namespace seal
