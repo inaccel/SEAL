@@ -89,7 +89,6 @@ thirdparty/
 #### Git ####
 *.patch
 *.diff
-!cmake/hexl_avx.patch
 
 #### Windows ####
 # Windows thumbnail cache files
